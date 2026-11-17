@@ -124,6 +124,8 @@ test('serves searchable standalone UI without persistent storage APIs', async ()
   assert.match(htmlResponse.headers.get('cache-control'), /no-store/);
   const clientCode = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.doesNotMatch(clientCode, /localStorage|sessionStorage|indexedDB|document\.cookie|caches\./);
+  assert.doesNotMatch(html, /id="limitations-section"|id="hook-section"/);
+  assert.match(clientCode, /table-search-input/);
 });
 
 test('validates URL and token without creating a cookie or server session', async () => {
@@ -146,7 +148,7 @@ test('field search scans the complete schema beyond 200 and searches data type',
   const typeResult = await byType.json(); assert.ok(typeResult.totalMatches > 10); assert.ok(typeResult.items.every((field) => field.type === 'Currency'));
 });
 
-test('usage scan returns formula dependencies and no separate Service Hook section', async () => {
+test('usage scan reports Service Hook conditions as Custom code entries, not a separate section', async () => {
   const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }));
   assert.equal(response.status, 200); const result = await response.json();
   assert.equal(result.coverage.objectsScanned, 251);
@@ -154,6 +156,11 @@ test('usage scan returns formula dependencies and no separate Service Hook secti
   assert.ok(!result.formulaDependencies.some((item) => item.source === 'Dependency metadata'));
   assert.equal(result.serviceHooks, undefined);
   assert.ok(!result.coverage.collectors.some((item) => item.key === 'serviceHooks'));
+  assert.equal(result.coverage.serviceHooksScanned, 202);
+  const conditions = result.customCode.filter((item) => item.access === 'Condition');
+  assert.deepEqual(conditions.map((item) => [item.runsAs[0].name, item.snippet, item.projectName, item.className, item.confidence]),
+    [['TargetFieldHook', 'Object250.TargetField == true', 'UsageProject', 'HookHandler', 'Exact']]);
+  assert.equal(conditions[0].recordId, 'hook-200');
 });
 
 test('every operation remains stateless and requires credentials', async () => {

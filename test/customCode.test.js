@@ -204,6 +204,18 @@ test('an unreadable Service Hook list only drops the hook wiring', async () => {
   } finally { hooksMode = 'ok'; }
 });
 
+test('a Service Hook condition naming the field is a Condition entry under Custom code', async () => {
+  const result = await scan('Status');
+  const condition = result.customCode.find((item) => item.access === 'Condition');
+  assert.ok(condition);
+  assert.equal(condition.snippet, 'Status == "Activated"'); assert.equal(condition.confidence, 'Exact');
+  assert.equal(condition.projectName, 'AgreementHooks'); assert.equal(condition.className, 'AgreementStatusHook');
+  assert.deepEqual(condition.runsAs.map((entry) => [entry.type, entry.name, entry.objectName]), [['Service Hook', 'AgreementStatusHook', 'Agreement']]);
+  assert.equal(condition.viewUrl, `${upstreamUrl}/admin/custom-code/AgreementHooks`);
+  const other = await scan('ext_RenewalTerm');
+  assert.ok(!other.customCode.some((item) => item.access === 'Condition'));
+});
+
 test('lexer separates strings and comments, including verbatim strings', () => {
   const { code, strings } = lexCSharp('var a = @"x ""y"" z"; // "not a string"\nvar b = "q\\"r"; /* "c" */');
   assert.deepEqual(strings.map((item) => item.value), ['x "y" z', 'q\\"r']);
