@@ -1,4 +1,5 @@
 import { CongaApiError } from './congaClient.js';
+import { buildReferenceUrl } from './referenceLinks.js';
 
 function pick(object, ...names) {
   for (const name of names) if (object && object[name] !== undefined) return object[name];
@@ -39,6 +40,7 @@ function extractDependencyItems(data) {
       if (!seen.has(key)) {
         seen.add(key);
         found.push({
+          recordId: pick(value, 'Id', 'id') ?? null,
           objectName,
           fieldName,
           label: pick(value, 'DisplayName', 'displayName') || fieldName,
@@ -54,7 +56,7 @@ function extractDependencyItems(data) {
   return found;
 }
 
-export async function scanFieldUsage(client, objectName, fieldName) {
+export async function scanFieldUsage(client, objectName, fieldName, { platformUrl = null, linkTemplates = {} } = {}) {
   if (typeof objectName !== 'string' || typeof fieldName !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(objectName) || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(fieldName)) {
     throw new CongaApiError('Object or field name is invalid', 400);
   }
@@ -71,6 +73,7 @@ export async function scanFieldUsage(client, objectName, fieldName) {
   if (selected.expression || selected.expressionDependencies.length) {
     formulaResults.push({
       id: `formula-source:${objectName}.${fieldName}`,
+      recordId: selected.id ?? null,
       direction: 'depends-on',
       objectName,
       fieldName,
@@ -86,6 +89,7 @@ export async function scanFieldUsage(client, objectName, fieldName) {
     if (field.name !== fieldName && referencesSelectedField(field.expressionDependencies, objectName, fieldName)) {
       formulaResults.push({
         id: `formula-dependent:${objectName}.${field.name}`,
+        recordId: field.id ?? null,
         direction: 'used-by',
         objectName,
         fieldName: field.name,
@@ -113,6 +117,7 @@ export async function scanFieldUsage(client, objectName, fieldName) {
       const customCode = pick(hook, 'CustomCodeDetails', 'customCodeDetails') ?? {};
       return {
         id: `service-hook:${pick(hook, 'Name', 'name')}`,
+        recordId: pick(hook, 'Id', 'id') ?? null,
         name: pick(hook, 'Name', 'name') ?? 'Unnamed service hook',
         objectName: pick(hook, 'ObjectName', 'objectName') ?? objectName,
         condition: pick(hook, 'Condition', 'condition') ?? '',
@@ -126,6 +131,13 @@ export async function scanFieldUsage(client, objectName, fieldName) {
         usage: 'Condition'
       };
     });
+
+  for (const item of formulaResults) {
+    item.viewUrl = buildReferenceUrl(linkTemplates.field, { platformUrl, id: item.recordId, objectName: item.objectName, fieldName: item.fieldName, name: item.fieldName });
+  }
+  for (const item of serviceHookResults) {
+    item.viewUrl = buildReferenceUrl(linkTemplates.serviceHook, { platformUrl, id: item.recordId, objectName: item.objectName, name: item.name });
+  }
 
   return {
     field: { objectName, fieldName, label: selected.label, dataType: selected.type },

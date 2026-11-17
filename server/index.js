@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { CongaApiError, CongaClient, normalizeBearerToken } from './congaClient.js';
 import { normalizePlatformUrl, publicUrlPolicy } from './platformUrl.js';
 import { scanFieldUsage } from './usageScanner.js';
+import { referenceLinkTemplates } from './referenceLinks.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = normalize(join(here, '..', 'public'));
@@ -37,12 +38,12 @@ function clientFromInput(input, fetchImpl, platformUrlOptions) {
   return { client: new CongaClient({ platformUrl, accessToken, userId }, fetchImpl), platformUrl, hasUserContext: Boolean(userId) };
 }
 
-export function createAppServer({ fetchImpl = fetch, platformUrlOptions = {} } = {}) {
+export function createAppServer({ fetchImpl = fetch, platformUrlOptions = {}, linkTemplates = referenceLinkTemplates() } = {}) {
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     try {
       if (url.pathname === '/health' && request.method === 'GET') return send(response, 200, { status: 'ok', storage: 'stateless' });
-      if (url.pathname === '/api/config' && request.method === 'GET') return send(response, 200, { authMode: 'bearer-token', storage: 'none', urlPolicy: publicUrlPolicy() });
+      if (url.pathname === '/api/config' && request.method === 'GET') return send(response, 200, { authMode: 'bearer-token', storage: 'none', urlPolicy: publicUrlPolicy(), referenceLinks: { serviceHook: Boolean(linkTemplates.serviceHook), field: Boolean(linkTemplates.field) } });
       if (url.pathname === '/api/platform/validate' && request.method === 'POST') {
         const input = await readJson(request);
         const connection = clientFromInput(input, fetchImpl, platformUrlOptions);
@@ -61,8 +62,8 @@ export function createAppServer({ fetchImpl = fetch, platformUrlOptions = {} } =
       }
       if (url.pathname === '/api/platform/usage-scan' && request.method === 'POST') {
         const input = await readJson(request);
-        const { client } = clientFromInput(input, fetchImpl, platformUrlOptions);
-        return send(response, 200, await scanFieldUsage(client, input.objectName, input.fieldName));
+        const { client, platformUrl } = clientFromInput(input, fetchImpl, platformUrlOptions);
+        return send(response, 200, await scanFieldUsage(client, input.objectName, input.fieldName, { platformUrl, linkTemplates }));
       }
       if (url.pathname.startsWith('/api/')) return send(response, 404, { error: 'API route not found' });
       return serveStatic(url.pathname, response);
@@ -75,6 +76,7 @@ export function createAppServer({ fetchImpl = fetch, platformUrlOptions = {} } =
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try { process.loadEnvFile?.(); } catch { /* .env is optional */ }
   const port = Number(process.env.PORT ?? 4100);
   createAppServer().listen(port, () => console.log(`Conga Field Usage Analyzer running at http://localhost:${port}`));
 }

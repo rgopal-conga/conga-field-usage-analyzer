@@ -71,6 +71,17 @@ CONGA_ALLOWED_PLATFORM_HOSTS=approved-gateway.example.internal
 
 Wildcards are not supported.
 
+## Reference links
+
+Usage-scan results show the record **ID** returned by the Platform API and, when a URL template is configured, link the result name to its page in the Conga admin UI (opens in a new tab). Set the templates in `.env` (loaded automatically on Node 20.12+) or the shell:
+
+```bash
+CONGA_SERVICE_HOOK_URL_TEMPLATE={platformUrl}/path/to/service-hooks/{id}
+CONGA_FIELD_URL_TEMPLATE={platformUrl}/path/to/objects/{objectName}/fields/{fieldName}
+```
+
+Placeholders: `{platformUrl}` (the connected tenant origin), `{id}`, `{objectName}`, `{fieldName}`, `{name}`. Values are URL-encoded. If a placeholder has no value for a result (for example the API returned no `Id`), that result is shown as plain text instead of a broken link. Copy the address of a real record page in your tenant to get the exact path.
+
 ## Verify
 
 ```bash

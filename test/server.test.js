@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
 import { createAppServer } from '../server/index.js';
 import { normalizePlatformUrl } from '../server/platformUrl.js';
+import { buildReferenceUrl } from '../server/referenceLinks.js';
 
 let upstream; let app; let upstreamUrl; let baseUrl;
 const observed = { apiHeaders: [], requests: [] };
@@ -14,6 +15,7 @@ const objects = Array.from({ length: 251 }, (_, index) => ({
   Category: index % 2 ? 'CPQ' : 'CLM', ObjectType: 'Default', IsProtected: true, IsDeprecated: false
 }));
 const fields = Array.from({ length: 251 }, (_, index) => ({
+  Id: `field-id-${index}`,
   FieldName: index === 250 ? 'TargetField' : `Field${String(index).padStart(3, '0')}`,
   DisplayName: index === 250 ? 'Late Field' : `Field Label ${String(index).padStart(3, '0')}`,
   DataType: index % 3 === 0 ? 'Currency' : 'String', IsRequired: false, IsProtected: true,
@@ -23,7 +25,7 @@ const fields = Array.from({ length: 251 }, (_, index) => ({
 const hooks = Array.from({ length: 202 }, (_, index) => index < 200 ? ({
   Name: `FillerHook${index}`, ObjectName: 'OtherObject', IsActive: true, Condition: 'Status == "Ready"', EventTypes: ['Update'], RuleType: 'DataChange'
 }) : index === 200 ? ({
-  Name: 'TargetFieldHook', ObjectName: 'Object250', IsActive: true,
+  Id: 'hook-200', Name: 'TargetFieldHook', ObjectName: 'Object250', IsActive: true,
   Condition: 'Object250.TargetField == true', EventTypes: ['Create', 'Update'], RuleType: 'DataChange',
   CustomCodeDetails: { ProjectName: 'UsageProject', ClassName: 'HookHandler', MethodName: 'Run' }
 }) : ({
@@ -60,7 +62,7 @@ before(async () => {
   });
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
   upstreamUrl = `http://127.0.0.1:${upstream.address().port}`;
-  app = createAppServer({ platformUrlOptions: { allowedHosts: ['127.0.0.1'], allowInsecureForTests: true, allowAnyPortForTests: true } });
+  app = createAppServer({ platformUrlOptions: { allowedHosts: ['127.0.0.1'], allowInsecureForTests: true, allowAnyPortForTests: true }, linkTemplates: { serviceHook: '{platformUrl}/admin/service-hooks/{id}', field: '{platformUrl}/admin/objects/{objectName}/fields/{id}' } });
   await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${app.address().port}`;
 });
@@ -145,4 +147,24 @@ test('keeps paging objects when the platform omits HasMoreRecords', async () => 
     assert.equal(body.totalScanned, 251);
     assert.equal(body.items[0].name, 'Object250');
   } finally { omitObjectHasMore = false; }
+});
+
+test('usage scan returns record IDs and view links built from the templates', async () => {
+  const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }));
+  const result = await response.json();
+  const hook = result.serviceHooks[0];
+  assert.equal(hook.recordId, 'hook-200');
+  assert.equal(hook.viewUrl, `${upstreamUrl}/admin/service-hooks/hook-200`);
+  const formula = result.formulaDependencies.find((item) => item.fieldName === 'Field249');
+  assert.equal(formula.recordId, 'field-id-249');
+  assert.equal(formula.viewUrl, `${upstreamUrl}/admin/objects/Object250/fields/field-id-249`);
+  const metadataOnly = result.formulaDependencies.find((item) => item.fieldName === 'DependentCrossField');
+  assert.equal(metadataOnly.viewUrl, null);
+});
+
+test('reference URLs encode values and skip links with missing or unsafe parts', () => {
+  assert.equal(buildReferenceUrl('{platformUrl}/hooks/{id}', { platformUrl: 'https://rls.congacloud.com', id: 'a b/../c' }), 'https://rls.congacloud.com/hooks/a%20b%2F..%2Fc');
+  assert.equal(buildReferenceUrl('{platformUrl}/hooks/{id}', { platformUrl: 'https://rls.congacloud.com', id: null }), null);
+  assert.equal(buildReferenceUrl(null, { id: 'x' }), null);
+  assert.equal(buildReferenceUrl('javascript:alert({id})', { id: '1' }), null);
 });

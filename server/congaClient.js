@@ -109,6 +109,7 @@ export class CongaClient {
     const metadata = pick(object, 'FieldMetadata', 'fieldMetadata') ?? [];
     if (!Array.isArray(metadata)) throw new CongaApiError('Unexpected field metadata response shape', 502);
     return metadata.map((field) => ({
+      id: pick(field, 'Id', 'id') ?? null,
       name: pick(field, 'FieldName', 'fieldName') ?? '',
       label: pick(field, 'DisplayName', 'displayName') || pick(field, 'FieldName', 'fieldName') || '',
       description: pick(field, 'Description', 'description') ?? '',
