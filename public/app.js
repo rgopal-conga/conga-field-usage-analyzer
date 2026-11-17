@@ -118,11 +118,12 @@ function table(headers, rows) {
 }
 function renderUsage(result) {
   const workflows = result.workflows ?? [];
-  const total = result.formulaDependencies.length + result.serviceHooks.length + workflows.length;
+  const customCode = result.customCode ?? [];
+  const total = result.formulaDependencies.length + result.serviceHooks.length + workflows.length + customCode.length;
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
     ...result.coverage.collectors.map((item) => `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.serviceHooksScanned} Service Hooks, ${result.coverage.workflowsScanned ?? 0} workflows`
+    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.serviceHooksScanned} Service Hooks, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#limitations-section').innerHTML = usageSection('Limitations', result.limitations.length, 'None', `<ul class="plain-list">${result.limitations.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
@@ -139,6 +140,23 @@ function renderUsage(result) {
   $('#workflow-section').innerHTML = usageSection('Workflows', workflows.length, 'No workflow references found',
     table(['Workflow name', 'Type'], workflows.map((item) => [
       referenceTitle(item.workflowName, item.viewUrl), escapeHtml(item.usage)
+    ])));
+  renderCustomCode(customCode);
+}
+function runsAsText(item) {
+  if (!item.runsAs || !item.runsAs.length) return '<span class="muted">Not linked to a hook, callback or Custom API</span>';
+  return item.runsAs.map((entry) => `<div><strong>${escapeHtml(entry.type)}</strong> ${escapeHtml(entry.name)}${entry.objectName ? ` <span class="muted">on ${escapeHtml(entry.objectName)}</span>` : ''}${entry.active === false ? ' <span class="muted">(inactive)</span>' : ''}</div>`).join('');
+}
+function confidenceBadge(value) { return `<span class="confidence confidence-${escapeHtml(String(value).toLowerCase())}">${escapeHtml(value)}</span>`; }
+function renderCustomCode(items) {
+  $('#customcode-section').innerHTML = usageSection('Custom code', items.length, 'No custom code references found',
+    table(['Project / file', 'Class · method', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
+      `${referenceTitle(item.projectName, item.viewUrl)}<div class="muted">${escapeHtml(item.filePath)}:${escapeHtml(item.line)}</div>`,
+      escapeHtml([item.className, item.methodName].filter(Boolean).join(' · ') || '—'),
+      escapeHtml(item.access),
+      confidenceBadge(item.confidence),
+      runsAsText(item),
+      `<code>${escapeHtml(item.snippet)}</code>`
     ])));
 }
 function safeHref(value) { try { const url = new URL(value); return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null; } catch { return null; } }

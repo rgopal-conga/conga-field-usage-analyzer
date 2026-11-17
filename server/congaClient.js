@@ -215,4 +215,73 @@ export class CongaClient {
     }
     return all;
   }
+
+  // Raw (non-JSON) GET, used for custom code project ZIP downloads. Same headers and redirect policy as request().
+  async requestBinary(path) {
+    const url = new URL(path, `${this.platformUrl}/`);
+    const headers = { Accept: 'application/octet-stream, application/zip, application/json' };
+    headers.Authorization = ['Bearer', this.accessToken].join(' ');
+    if (this.userId) headers['user-id'] = this.userId;
+    const response = await this.fetchImpl(url, { method: 'GET', headers, redirect: 'error', cache: 'no-store' });
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!response.ok) {
+      let payload = {};
+      try { payload = JSON.parse(bytes.toString('utf8')); } catch { /* not JSON */ }
+      const status = response.status === 401 || response.status === 403 ? response.status : 502;
+      throw new CongaApiError(upstreamMessage(payload, `Conga Platform request failed (${response.status})`), status);
+    }
+    return bytes;
+  }
+
+  // GET /api/extensibility/v1/customcode — every custom code project (CSharpProjectInfo). Documents may be omitted here.
+  async listCustomCodeProjects() {
+    const payload = await this.request('/api/extensibility/v1/customcode');
+    const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data') ?? [];
+    if (!Array.isArray(data)) throw new CongaApiError('Unexpected custom code list response shape', 502);
+    return data;
+  }
+
+  static assertProjectName(projectName) {
+    if (typeof projectName !== 'string' || !/^[A-Za-z0-9_.\- ]{1,200}$/.test(projectName)) throw new CongaApiError('Custom code project name is invalid', 400);
+  }
+
+  // GET /api/extensibility/v1/customcode/{name} — one project including Documents[{ Name, FilePath, SourceCode }].
+  async getCustomCodeProject(projectName) {
+    CongaClient.assertProjectName(projectName);
+    const payload = await this.request(`/api/extensibility/v1/customcode/${encodeURIComponent(projectName)}`);
+    const data = pick(payload, 'Data', 'data') ?? payload;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new CongaApiError('Unexpected custom code project response shape', 502);
+    return data;
+  }
+
+  // GET /api/extensibility/v1/customcode/{projectName}/download — the project as a ZIP (fallback when Documents is empty).
+  async downloadCustomCodeProject(projectName) {
+    CongaClient.assertProjectName(projectName);
+    return this.requestBinary(`/api/extensibility/v1/customcode/${encodeURIComponent(projectName)}/download`);
+  }
+
+  // GET /api/extensibility/v1/callbacks — callback contracts and the project/class mapped to each.
+  async listCallbackContracts() {
+    const payload = await this.request('/api/extensibility/v1/callbacks');
+    const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data') ?? [];
+    if (!Array.isArray(data)) throw new CongaApiError('Unexpected callback response shape', 502);
+    return data;
+  }
+
+  // GET /api/extensibility/v1/customcode/api-resource and .../{name}/uri-entries — Custom API routes mapped to project methods.
+  async listCustomApiRoutes() {
+    const payload = await this.request('/api/extensibility/v1/customcode/api-resource');
+    const resources = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data') ?? [];
+    if (!Array.isArray(resources)) throw new CongaApiError('Unexpected API resource response shape', 502);
+    const routes = [];
+    for (const resource of resources) {
+      const name = pick(resource, 'Name', 'name', 'ResourceName');
+      if (typeof name !== 'string' || !name) continue;
+      const entriesPayload = await this.request(`/api/extensibility/v1/customcode/api-resource/${encodeURIComponent(name)}/uri-entries`);
+      const data = pick(entriesPayload, 'Data', 'data') ?? {};
+      const entries = Array.isArray(data) ? data : pick(data, 'RouteEntries', 'routeEntries') ?? [];
+      for (const entry of Array.isArray(entries) ? entries : []) routes.push({ resourceName: name, defaultVerb: pick(data, 'HttpVerb', 'httpVerb') ?? null, ...entry });
+    }
+    return routes;
+  }
 }
