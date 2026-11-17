@@ -1,6 +1,6 @@
 # Conga Field Usage Analyzer — standalone internal web application
 
-Version 0.5 is a testable standalone build with searchable tenant metadata plus Formula Dependency and Service Hook condition scans. It has no Chrome extension or Conga TS Inspector integration.
+Version 0.6 is a testable standalone build with searchable tenant metadata plus Formula Dependency, Service Hook condition, Workflow and Custom Code scans. It has no Chrome extension or Conga TS Inspector integration.
 
 ## Run
 
@@ -26,7 +26,7 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
 
 ## Usage scan
 
-**Find usage** runs two request-scoped collectors:
+**Find usage** runs four request-scoped collectors:
 
 1. **Formula dependencies**
    - Shows what the selected field depends on when it is a formula.
@@ -48,7 +48,22 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
    - Usage is labelled Condition, Field update, Field mapping, Expression or Variable from the property name.
    - If the workflow API is unavailable, or a definition cannot be read, the collector reports `failed`/`partial` in limitations; the other collectors still return.
 
-Object-level hooks whose condition does not reference the field are counted but not claimed as field usage. Their custom code is not analyzed in this build, and the UI states that limitation.
+4. **Custom code references**
+   - Lists every project with `GET /api/extensibility/v1/customcode`.
+   - Reads each project's source from `GET /api/extensibility/v1/customcode/{name}` (`Documents[].SourceCode`), three at a time. If a project returns no documents, it falls back to `GET /api/extensibility/v1/customcode/{name}/download` and reads the `.cs`/text files from the ZIP in memory (`bin/` and `obj/` are skipped).
+   - Works out how each class runs, shown as **Runs as**:
+     - Service Hook rules → `CustomCodeDetails.ProjectName/ClassName` (already read for the condition scan).
+     - Callbacks → `GET /api/extensibility/v1/callbacks` → `CustomCodeMapping.ProjectName/ClassName`.
+     - Custom APIs → `GET /api/extensibility/v1/customcode/api-resource` and `.../{resource}/uri-entries` → `CustomCodeName`, `FullyQualifiedClassName`, `MethodName`.
+   - Analyses C# as text. Comments are ignored, and string literals and identifiers are matched as whole tokens:
+     - `"Object.Field"` inside a string → **Exact**.
+     - `"Field"` as a whole string literal, in a file that names the object or a class wired to a hook on the object → **Exact**; when only another file in the project names the object → **Probable**; otherwise → **Possible**.
+     - The field inside a longer string (criteria, select lists) → **Probable** when the object is in context, otherwise **Possible**.
+     - `record.Field` style identifiers → **Probable**, reported only when the object is in context.
+   - Labels each match **Write** (`rec["F"] = …`, `Set*("F", …)`, `{ "F", v }` in an insert/update dictionary, `obj.F = …`), **Read** (`rec["F"]`, `Get*("F")`, `obj.F`), **Query / criteria**, **Declaration** or **Reference**, with file, line, class and method.
+   - If callback or Custom API mappings cannot be read, matches are still reported and the limitation says "Runs as" may be incomplete. If the custom code API is unavailable, the collector reports `failed` and the other collectors still return.
+
+Object-level hooks whose condition does not reference the field are counted but not claimed as field usage. Their linked custom code is covered by the Custom code collector.
 
 ## No persistent storage
 
@@ -89,6 +104,7 @@ Usage-scan results show the record **ID** returned by the Platform API and, when
 CONGA_SERVICE_HOOK_URL_TEMPLATE={platformUrl}/path/to/service-hooks/{id}
 CONGA_FIELD_URL_TEMPLATE={platformUrl}/path/to/objects/{objectName}/fields/{fieldName}
 CONGA_WORKFLOW_URL_TEMPLATE={platformUrl}/workflow/{id}/   # default when unset
+CONGA_CUSTOM_CODE_URL_TEMPLATE={platformUrl}/path/to/custom-code/{name}   # {name} = project name
 ```
 
 Placeholders: `{platformUrl}` (the connected tenant origin), `{id}`, `{objectName}`, `{fieldName}`, `{name}`. Values are URL-encoded. If a placeholder has no value for a result (for example the API returned no `Id`), that result is shown as plain text instead of a broken link. Copy the address of a real record page in your tenant to get the exact path.
@@ -99,8 +115,8 @@ Placeholders: `{platformUrl}` (the connected tenant origin), `{id}`, `{objectNam
 npm run check
 ```
 
-The integration suite uses a local mock tenant containing 251 objects, 251 fields, and 202 Service Hooks to prove search and scanning continue beyond 200 without calling a real tenant.
+The integration suite uses a local mock tenant containing 251 objects, 251 fields, and 202 Service Hooks to prove search and scanning continue beyond 200 without calling a real tenant. `test/customCode.test.js` adds a mock tenant with custom code projects (inline documents, a ZIP-only project, an unreadable project), a Service Hook, a callback mapping and a Custom API route.
 
 ## Current boundary
 
-Workflow, callback source, and custom-code analysis are not implemented. A tenant-wide asynchronous index would require approved encrypted job storage; this no-storage build instead performs synchronous, request-scoped scans.
+Custom code is matched as text, not compiled, so field names built at runtime (string concatenation, constants defined in another project, generic loops over every field) are not detected. Read and write access is inferred from common Platform patterns, so review Probable and Possible matches. Data written through external REST API calls, imports and integrations is not visible to any collector. A tenant-wide asynchronous index would require approved encrypted job storage; this no-storage build instead performs synchronous, request-scoped scans, and source code is held only in request memory.
