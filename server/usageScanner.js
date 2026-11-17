@@ -9,6 +9,42 @@ function pick(object, ...names) {
   return undefined;
 }
 
+function fieldTokenInCondition(condition, objectName, fieldName) {
+  if (!condition) return false;
+  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const boundary = (value) => new RegExp(`(^|[^A-Za-z0-9_])${escape(value)}($|[^A-Za-z0-9_])`, 'i').test(condition);
+  return boundary(`${objectName}.${fieldName}`) || boundary(fieldName);
+}
+
+// A Service Hook on the selected object whose configured condition names the field is reported
+// as a Custom code entry with access "Condition", next to the code that hook runs.
+function hookConditionResults(hooks, objectName, fieldName) {
+  return hooks
+    .filter((hook) => String(pick(hook, 'ObjectName', 'objectName') ?? '').toLowerCase() === objectName.toLowerCase())
+    .filter((hook) => fieldTokenInCondition(pick(hook, 'Condition', 'condition'), objectName, fieldName))
+    .map((hook) => {
+      const details = pick(hook, 'CustomCodeDetails', 'customCodeDetails') ?? {};
+      const name = pick(hook, 'Name', 'name') ?? 'Unnamed Service Hook';
+      const ruleType = pick(hook, 'RuleType', 'ruleType');
+      const events = pick(hook, 'EventTypes', 'eventTypes') ?? [];
+      return {
+        id: `service-hook-condition:${name}`,
+        recordId: pick(hook, 'Id', 'id') ?? null,
+        projectName: pick(details, 'ProjectName', 'projectName') ?? null,
+        filePath: null,
+        line: null,
+        source: 'Service Hook condition',
+        className: pick(details, 'ClassName', 'className') ?? null,
+        methodName: pick(details, 'MethodName', 'methodName') ?? null,
+        access: 'Condition',
+        confidence: 'Exact',
+        snippet: String(pick(hook, 'Condition', 'condition') ?? ''),
+        runsAs: [{ type: 'Service Hook', name, objectName: pick(hook, 'ObjectName', 'objectName') ?? objectName, detail: [ruleType, events.join('/')].filter(Boolean).join(' · '), active: pick(hook, 'IsActive', 'isActive') !== false }]
+      };
+    })
+    .sort((left, right) => left.runsAs[0].name.localeCompare(right.runsAs[0].name));
+}
+
 export async function scanFieldUsage(client, objectName, fieldName, { platformUrl = null, linkTemplates = {} } = {}) {
   if (typeof objectName !== 'string' || typeof fieldName !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(objectName) || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(fieldName)) {
     throw new CongaApiError('Object or field name is invalid', 400);
@@ -18,10 +54,11 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
   // A failure here must not block the scan; the custom code results simply lose that wiring.
   let hookError = null;
   const hooksPromise = client.listServiceHooks().catch((error) => { hookError = error; return []; });
-  const [schemaScan, workflowScan, customCodeScan] = await Promise.all([
+  const [schemaScan, workflowScan, customCodeScan, hooks] = await Promise.all([
     loadAllSchemas(client, objectName),
     scanWorkflows(client, objectName, fieldName).catch((error) => ({ error })),
-    hooksPromise.then((list) => scanCustomCode(client, objectName, fieldName, { hooks: list })).catch((error) => ({ error }))
+    hooksPromise.then((list) => scanCustomCode(client, objectName, fieldName, { hooks: list })).catch((error) => ({ error })),
+    hooksPromise
   ]);
   const fields = schemaScan.schemas.get(objectName.toLowerCase()) ?? [];
   const selected = fields.find((field) => field.name === fieldName);
@@ -54,7 +91,7 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
     item.viewUrl = buildReferenceUrl(linkTemplates.workflow, { platformUrl, id: item.recordId, objectName: item.objectName, name: item.workflowName });
   }
   const workflowStatus = workflowScan.error ? 'failed' : workflowScan.failures.length ? 'partial' : 'complete';
-  const customCodeResults = customCodeScan.error ? [] : customCodeScan.results;
+  const customCodeResults = [...hookConditionResults(hooks, objectName, fieldName), ...(customCodeScan.error ? [] : customCodeScan.results)];
   for (const item of customCodeResults) {
     item.viewUrl = buildReferenceUrl(linkTemplates.customCode, { platformUrl, id: item.projectName, objectName, fieldName, name: item.projectName });
   }
@@ -63,10 +100,10 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
   if (schemaScan.failures.length) limitations.push(`${schemaScan.failures.length} object schema(s) could not be read, so their formulas were not checked: ${schemaScan.failures.slice(0, 5).join(', ')}${schemaScan.failures.length > 5 ? ', …' : ''}.`);
   if (workflowScan.error) limitations.push(`Workflow scan failed: ${workflowScan.error.message}. The other results are still complete.`);
   else if (workflowScan.failures.length) limitations.push(`${workflowScan.failures.length} workflow definition(s) could not be read and were skipped: ${workflowScan.failures.slice(0, 5).join(', ')}${workflowScan.failures.length > 5 ? ', …' : ''}.`);
+  if (hookError) limitations.push(`Service Hook rules could not be read (${hookError.message}); hook conditions were not checked and "Runs as" may omit Service Hooks.`);
   if (customCodeScan.error) limitations.push(`Custom code scan failed: ${customCodeScan.error.message}. The other results are still complete.`);
   else {
     if (customCodeScan.failures.length) limitations.push(`${customCodeScan.failures.length} custom code project(s) could not be read and were skipped: ${customCodeScan.failures.slice(0, 5).join(', ')}${customCodeScan.failures.length > 5 ? ', …' : ''}.`);
-    if (hookError) limitations.push(`Service Hook rules could not be read (${hookError.message}); "Runs as" may omit Service Hooks.`);
     limitations.push(...customCodeScan.notes);
     if (customCodeResults.length) limitations.push('Custom code is matched as text (string literals and identifiers), not compiled. Field names built at runtime, or read through generic loops over all fields, are not detected. Review Probable and Possible matches before acting on them.');
   }
@@ -82,6 +119,7 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
       workflowsScanned: workflowScan.error ? 0 : workflowScan.workflowsScanned,
       customCodeProjectsScanned: customCodeScan.error ? 0 : customCodeScan.projectsScanned,
       customCodeFilesScanned: customCodeScan.error ? 0 : customCodeScan.filesScanned,
+      serviceHooksScanned: hooks.length,
       collectors: [
         { key: 'formulaDependencies', label: 'Formula dependencies (all objects)', status: schemaScan.failures.length ? 'partial' : 'complete', matches: formulaResults.length },
         { key: 'workflows', label: 'Workflow references', status: workflowStatus, matches: workflowResults.length },

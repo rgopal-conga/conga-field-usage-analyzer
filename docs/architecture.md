@@ -46,7 +46,7 @@ Search limits affect only returned matches, not upstream coverage. Object search
 
 ## Collector fidelity
 
-Formula relationships derived from `ExpressionDependency` and dependency metadata are labeled Exact. Service Hooks are not reported as a separate collector: the code each hook runs is checked by the custom code collector, and the hook is shown under "Runs as".
+Formula relationships derived from `ExpressionDependency` and dependency metadata are labeled Exact. Service Hooks are not reported as a separate collector: the code each hook runs is checked by the custom code collector, and the hook is shown under "Runs as". A hook on the selected object whose condition contains a boundary-safe match for `Object.Field` or `Field` is added to the custom code results with access Condition, labelled Exact.
 
 Custom code matches are labelled Exact when a string literal contains `Object.Field`, or equals the field name in a file that names the object or a class wired to a Service Hook on the object. Matches that depend on project-level context, or that sit in a longer string or a property access, are Probable; field-name literals with no object context are Possible. The collector never compiles or executes code.
 

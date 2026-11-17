@@ -55,9 +55,13 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
      - The field inside a longer string (criteria, select lists) → **Probable** when the object is in context, otherwise **Possible**.
      - `record.Field` style identifiers → **Probable**, reported only when the object is in context.
    - Labels each match **Write** (`rec["F"] = …`, `Set*("F", …)`, `{ "F", v }` in an insert/update dictionary, `obj.F = …`), **Read** (`rec["F"]`, `Get*("F")`, `obj.F`), **Query / criteria**, **Declaration** or **Reference**, with file, line, class and method.
-   - If Service Hook, callback or Custom API mappings cannot be read, matches are still reported and the limitation says "Runs as" may be incomplete. If the custom code API is unavailable, the collector reports `failed` and the other collectors still return.
+   - If Service Hook, callback or Custom API mappings cannot be read, matches are still reported and the `limitations` array in the API response says "Runs as" may be incomplete. If the custom code API is unavailable, the collector reports `failed` and the other collectors still return.
 
-Service Hooks have no section of their own: the code a hook runs is scanned under **Custom code**, and **Runs as** names the hook. A hook's configured condition text is not searched.
+Service Hooks have no section of their own. The code a hook runs is scanned under **Custom code**, and **Runs as** names the hook. A hook on the selected object whose configured condition names the field (`Object.Field` or `Field` as a whole token) is also listed under **Custom code** with access **Condition** and confidence **Exact**, showing the condition, the hook and the project/class it runs.
+
+The **Custom code** section has a search box that filters the displayed rows as you type. Every word must appear somewhere in the row (project, file, class, method, access, confidence, Runs as or code). It only filters what is already shown; it does not call the tenant again.
+
+The results show **Scan coverage** (status and match count per collector) but no limitations list. A collector that could not finish shows `partial` or `failed` there. The `limitations` array is still returned by `POST /api/platform/usage-scan` for anyone calling the API directly.
 
 ## No persistent storage
 
