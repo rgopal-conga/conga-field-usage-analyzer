@@ -6,6 +6,7 @@ import { createAppServer } from '../server/index.js';
 import { normalizePlatformUrl } from '../server/platformUrl.js';
 import { buildReferenceUrl, referenceLinkTemplates } from '../server/referenceLinks.js';
 import { findFieldInWorkflow } from '../server/workflowScanner.js';
+import { findFieldInFieldExpression } from '../server/fieldExpressionScanner.js';
 
 let upstream; let app; let upstreamUrl; let baseUrl;
 const observed = { apiHeaders: [], requests: [] };
@@ -47,6 +48,17 @@ function workflowDefinition(definitionId) {
     ] };
 }
 const workflowQueries = [];
+// 103 Field Expressions over two pages: fe-0 updates Object250.TargetField, fe-1 (inactive) reads it in its
+// filter, fe-2 cannot be read, fe-3 is only *named* TargetField and must not match; the rest are unrelated.
+const fieldExpressionSummaries = Array.from({ length: 103 }, (_, index) => ({ Id: `fe-${index}`, Name: index === 3 ? 'TargetField' : `Expression ${index}`, IsActive: index !== 1, IsModifiable: true, UpdateField: index === 0 ? 'TargetField' : 'SellingTerm', ModifiedDate: '2026-11-17T00:00:00Z' }));
+function fieldExpressionDefinition(id) {
+  const index = Number(id.split('-')[1]);
+  const base = { Id: id, Name: fieldExpressionSummaries[index].Name, IsActive: index !== 1, ExpressionType: 'Field Update', ExpressionContext: 'Record Update', SourceObject: 'Line Item', Scope: 'Product' };
+  if (index === 0) return { ...base, UpdateObject: 'Object 250', UpdateField: 'TargetField', ValueExpression: { Expression: 'Object250.Other * 2' } };
+  if (index === 1) return { ...base, UpdateObject: 'Line Item', UpdateField: 'SellingTerm', FilterExpression: { Expression: 'Object250.TargetField == "3 Years"' } };
+  return { ...base, UpdateObject: 'Line Item', UpdateField: 'SellingTerm', ValueExpression: { Expression: 'LineItem.Quantity * 12' } };
+}
+const fieldExpressionQueries = [];
 // Cross-object formulas: Object010 -> Object250 via lookup, Object011 -> Object010 -> Object250 (two hops),
 // Object012 has a TargetField path that leads to a different object, Object013 names the object directly,
 // Object014's only mention is inside a string literal, Object015's schema cannot be read.
@@ -96,6 +108,16 @@ before(async () => {
       const body = JSON.parse(raw); workflowQueries.push({ query: url.search, body });
       const data = workflowSummaries.slice(body.Skip, body.Skip + body.Limit);
       return json(response, 200, { Success: true, Data: data, TotalCount: workflowSummaries.length });
+    }
+    if (url.pathname === '/api/search/v1/objects/FieldExpression/query' && request.method === 'POST') {
+      let raw = ''; for await (const chunk of request) raw += chunk;
+      const body = JSON.parse(raw); fieldExpressionQueries.push({ query: url.search, body });
+      return json(response, 200, { Success: true, Data: fieldExpressionSummaries.slice(body.Skip, body.Skip + body.Limit), TotalCount: fieldExpressionSummaries.length });
+    }
+    const fieldExpressionMatch = url.pathname.match(/^\/api\/revenue-admin\/v1\/field-expressions\/([^/]+)$/);
+    if (fieldExpressionMatch) {
+      if (fieldExpressionMatch[1] === 'fe-2') return json(response, 500, { Message: 'Field expression unavailable' });
+      return json(response, 200, { Success: true, Data: fieldExpressionDefinition(fieldExpressionMatch[1]) });
     }
     const workflowMatch = url.pathname.match(/^\/api\/workflow\/v1\/workflow-definitions\/([^/]+)\/Latest$/);
     if (workflowMatch) {
@@ -272,4 +294,44 @@ test('formula dependencies include formulas on other objects reached through loo
   assert.ok(result.formulaDependencies.every((item) => item.expression || item.dependencies?.length));
   assert.equal(result.coverage.collectors.find((item) => item.key === 'formulaDependencies').status, 'partial');
   assert.ok(result.limitations.some((text) => /1 object schema\(s\) could not be read.*Object015/.test(text)));
+});
+
+test('field expression matcher reads updates, filters and values, and ignores record metadata', () => {
+  const definition = { Id: 'x', Name: 'TargetField rule', UpdateObject: 'Line Item', UpdateField: 'SellingTerm',
+    FilterExpression: { Expression: 'LineItem.Term == "3 Years" && Product.Family == "HW"' }, ValueExpression: { Expression: 'IF(Term == "3 Years", 36, 12)' },
+    ModifiedBy: { Name: 'Term' } };
+  assert.deepEqual(findFieldInFieldExpression(definition, 'LineItem', 'SellingTerm').map((item) => [item.usage, item.confidence]), [['Field update', 'Exact']]);
+  assert.deepEqual(findFieldInFieldExpression(definition, 'LineItem', 'Term').map((item) => [item.usage, item.confidence]), [['Filter expression', 'Exact'], ['Value expression', 'Probable']]);
+  assert.deepEqual(findFieldInFieldExpression(definition, 'Product', 'Family').map((item) => [item.usage, item.confidence]), [['Filter expression', 'Exact']]);
+  assert.deepEqual(findFieldInFieldExpression(definition, 'Agreement', 'SellingTerm'), [], 'a field update on another object is not a match');
+  assert.deepEqual(findFieldInFieldExpression(definition, 'LineItem', 'TargetField'), [], 'the expression name is not a reference');
+  assert.deepEqual(findFieldInFieldExpression({ UpdateField: 'Agreement.Status' }, 'Agreement', 'Status').map((item) => item.confidence), ['Exact']);
+});
+
+test('usage scan pages field expressions, links them and tolerates an unreadable one', async () => {
+  const before = fieldExpressionQueries.length;
+  const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }));
+  assert.equal(response.status, 200); const result = await response.json();
+  const queries = fieldExpressionQueries.slice(before);
+  assert.equal(queries.length, 2); assert.match(queries[0].query, /includeTotalCount=true/);
+  assert.deepEqual(queries[0].body, { ObjectName: 'FieldExpression', Criteria: '', Select: ['Id', 'Name', 'IsActive', 'IsModifiable', 'UpdateField', 'ModifiedDate'], Skip: 0, Limit: 100, Sort: { FieldName: 'ModifiedDate', OrderBy: 'Descending' } });
+  assert.equal(queries[1].body.Skip, 100);
+  assert.equal(result.coverage.fieldExpressionsScanned, 103);
+  assert.deepEqual(result.fieldExpressions.map((item) => [item.expressionName, item.usage, item.confidence, item.active]), [
+    ['Expression 0', 'Field update', 'Exact', true],
+    ['Expression 1', 'Filter expression', 'Exact', false]
+  ]);
+  assert.equal(result.fieldExpressions[0].viewUrl, `${upstreamUrl}/cadmin/field-expression/fe-0`);
+  const collector = result.coverage.collectors.find((item) => item.key === 'fieldExpressions');
+  assert.deepEqual([collector.status, collector.matches], ['partial', 2]);
+  assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'customCode']);
+  assert.ok(result.limitations.some((text) => /1 field expression\(s\) could not be read/.test(text)));
+});
+
+test('field expression links default to the CPQ admin page and the section sits above custom code', async () => {
+  const templates = referenceLinkTemplates({});
+  assert.equal(buildReferenceUrl(templates.fieldExpression, { platformUrl: 'https://preview-rls09.congacloud.com', id: 'a1108d61-3d43-f47e-b772-cb8d5d37c866' }), 'https://preview-rls09.congacloud.com/cadmin/field-expression/a1108d61-3d43-f47e-b772-cb8d5d37c866');
+  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.ok(html.indexOf('id="workflow-section"') < html.indexOf('id="fieldexpression-section"'));
+  assert.ok(html.indexOf('id="fieldexpression-section"') < html.indexOf('id="customcode-section"'));
 });

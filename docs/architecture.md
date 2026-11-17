@@ -34,6 +34,7 @@ Standalone backend — request scope only
   ├─ field search: fetch complete schema → filter → return top matches
   ├─ formula dependency collector
   ├─ workflow reference collector
+  ├─ field expression reference collector (CPQ)
   ├─ custom code collector (source held in request memory only;
   │    Service Hook rules read only for "Runs as" wiring)
   └─ no session, cookie, file, database, or cache
@@ -44,6 +45,8 @@ Standalone backend — request scope only
           ├─ GET /api/extensibility/v1/servicehooks/rules
           ├─ POST /api/workflow/v1/query/WorkflowDefinition
           ├─ GET /api/workflow/v1/workflow-definitions/{definitionId}/Latest
+          ├─ POST /api/search/v1/objects/FieldExpression/query?includeTotalCount=true
+          ├─ GET /api/revenue-admin/v1/field-expressions/{id}
           ├─ GET /api/extensibility/v1/customcode
           ├─ GET /api/extensibility/v1/customcode/{name}
           ├─ GET /api/extensibility/v1/customcode/{name}/download   (ZIP fallback)
@@ -66,6 +69,8 @@ Every POST requires `platformUrl`, `bearerToken`, and optional `userId`:
 Search limits affect only returned matches, not upstream coverage. Object search exhausts pagination before filtering. Field search filters the complete object schema.
 
 ## Collector fidelity
+
+Field expression matches are labelled Exact when `UpdateField` names the field on the selected object or a string contains `Object.Field`; a bare field name in an expression whose update or source object is the selected object is Probable. Record metadata (Id, Name, Description, audit fields) is never matched.
 
 Formula relationships derived from `ExpressionDependency` and dependency metadata are labeled Exact. Service Hooks are not reported as a separate collector: the code each hook runs is checked by the custom code collector, and the hook is shown under "Runs as". A hook on the selected object whose condition contains a boundary-safe match for `Object.Field` or `Field` is added to the custom code results with access Condition, labelled Exact.
 

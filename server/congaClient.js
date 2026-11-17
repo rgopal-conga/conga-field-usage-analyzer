@@ -199,6 +199,42 @@ export class CongaClient {
     return definition;
   }
 
+  // POST /api/search/v1/objects/FieldExpression/query — every CPQ Field Expression (active and inactive).
+  // Skip advances by the rows actually returned, so a server-side page cap cannot skip records.
+  async listFieldExpressions() {
+    const all = [];
+    const limit = 100;
+    for (let page = 0; page < 200; page += 1) {
+      const payload = await this.request('/api/search/v1/objects/FieldExpression/query', { includeTotalCount: true }, {
+        method: 'POST',
+        body: {
+          ObjectName: 'FieldExpression',
+          Criteria: '',
+          Select: ['Id', 'Name', 'IsActive', 'IsModifiable', 'UpdateField', 'ModifiedDate'],
+          Skip: all.length,
+          Limit: limit,
+          Sort: { FieldName: 'ModifiedDate', OrderBy: 'Descending' }
+        }
+      });
+      const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data', 'Records', 'records', 'Items', 'items') ?? [];
+      if (!Array.isArray(data)) throw new CongaApiError('Unexpected field expression query response shape', 502);
+      all.push(...data);
+      const total = Array.isArray(payload) ? undefined : pick(payload, 'TotalCount', 'totalCount');
+      if (data.length === 0 || (typeof total === 'number' ? all.length >= total : data.length < limit)) break;
+      if (page === 199) throw new CongaApiError('Field expressions exceeded the 200-page safety limit', 502);
+    }
+    return all;
+  }
+
+  // GET /api/revenue-admin/v1/field-expressions/{id} — one Field Expression with its filter and value expressions.
+  async getFieldExpression(expressionId) {
+    if (typeof expressionId !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(expressionId)) throw new CongaApiError('Field expression id is invalid', 400);
+    const payload = await this.request(`/api/revenue-admin/v1/field-expressions/${encodeURIComponent(expressionId)}`);
+    const definition = pick(payload, 'Data', 'data') ?? payload;
+    if (!definition || typeof definition !== 'object' || Array.isArray(definition)) throw new CongaApiError('Unexpected field expression response shape', 502);
+    return definition;
+  }
+
   async listServiceHooks() {
     const all = [];
     const pageSize = 200;

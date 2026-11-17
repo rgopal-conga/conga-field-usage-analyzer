@@ -22,13 +22,14 @@ function clientFromInput(input, fetchImpl, platformUrlOptions) {
 // options: { fetchImpl, platformUrlOptions, linkTemplates, env, runtime }
 export function createApi({ fetchImpl, platformUrlOptions = {}, linkTemplates, env, runtime = 'standalone' } = {}) {
   const doFetch = fetchImpl ?? ((...args) => globalThis.fetch(...args));
-  const templates = linkTemplates ?? referenceLinkTemplates(env);
+  // Explicit templates override the defaults one by one, so a new link type gets its default.
+  const templates = { ...referenceLinkTemplates(env), ...(linkTemplates ?? {}) };
   const routes = {
     'GET /health': async () => ({ status: 'ok', storage: 'stateless', runtime }),
     'GET /api/config': async () => ({
       authMode: 'bearer-token', storage: 'none', runtime,
       urlPolicy: publicUrlPolicy(env, platformUrlOptions),
-      referenceLinks: { field: Boolean(templates.field), workflow: Boolean(templates.workflow), customCode: Boolean(templates.customCode) }
+      referenceLinks: { field: Boolean(templates.field), workflow: Boolean(templates.workflow), fieldExpression: Boolean(templates.fieldExpression), customCode: Boolean(templates.customCode) }
     }),
     'POST /api/platform/validate': async (input) => {
       const connection = clientFromInput(input, doFetch, platformUrlOptions);

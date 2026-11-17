@@ -10,6 +10,7 @@ export function referenceLinkTemplates(env = globalThis.process?.env ?? {}) {
   return {
     field: clean(env.CONGA_FIELD_URL_TEMPLATE),
     workflow: clean(env.CONGA_WORKFLOW_URL_TEMPLATE) ?? '{platformUrl}/workflow/{id}/',
+    fieldExpression: clean(env.CONGA_FIELD_EXPRESSION_URL_TEMPLATE) ?? '{platformUrl}/cadmin/field-expression/{id}',
     customCode: clean(env.CONGA_CUSTOM_CODE_URL_TEMPLATE)
   };
 }

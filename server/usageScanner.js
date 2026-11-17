@@ -1,6 +1,7 @@
 import { CongaApiError } from './congaClient.js';
 import { buildReferenceUrl } from './referenceLinks.js';
 import { scanWorkflows } from './workflowScanner.js';
+import { scanFieldExpressions } from './fieldExpressionScanner.js';
 import { findFormulaReferences, loadAllSchemas } from './formulaScanner.js';
 import { scanCustomCode } from './customCodeScanner.js';
 
@@ -54,9 +55,10 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
   // A failure here must not block the scan; the custom code results simply lose that wiring.
   let hookError = null;
   const hooksPromise = client.listServiceHooks().catch((error) => { hookError = error; return []; });
-  const [schemaScan, workflowScan, customCodeScan, hooks] = await Promise.all([
+  const [schemaScan, workflowScan, fieldExpressionScan, customCodeScan, hooks] = await Promise.all([
     loadAllSchemas(client, objectName),
     scanWorkflows(client, objectName, fieldName).catch((error) => ({ error })),
+    scanFieldExpressions(client, objectName, fieldName).catch((error) => ({ error })),
     hooksPromise.then((list) => scanCustomCode(client, objectName, fieldName, { hooks: list })).catch((error) => ({ error })),
     hooksPromise
   ]);
@@ -91,6 +93,11 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
     item.viewUrl = buildReferenceUrl(linkTemplates.workflow, { platformUrl, id: item.recordId, objectName: item.objectName, name: item.workflowName });
   }
   const workflowStatus = workflowScan.error ? 'failed' : workflowScan.failures.length ? 'partial' : 'complete';
+  const fieldExpressionResults = fieldExpressionScan.error ? [] : fieldExpressionScan.results;
+  for (const item of fieldExpressionResults) {
+    item.viewUrl = buildReferenceUrl(linkTemplates.fieldExpression, { platformUrl, id: item.recordId, objectName, fieldName, name: item.expressionName });
+  }
+  const fieldExpressionStatus = fieldExpressionScan.error ? 'failed' : fieldExpressionScan.failures.length ? 'partial' : 'complete';
   const customCodeResults = [...hookConditionResults(hooks, objectName, fieldName), ...(customCodeScan.error ? [] : customCodeScan.results)];
   for (const item of customCodeResults) {
     item.viewUrl = buildReferenceUrl(linkTemplates.customCode, { platformUrl, id: item.projectName, objectName, fieldName, name: item.projectName });
@@ -100,6 +107,8 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
   if (schemaScan.failures.length) limitations.push(`${schemaScan.failures.length} object schema(s) could not be read, so their formulas were not checked: ${schemaScan.failures.slice(0, 5).join(', ')}${schemaScan.failures.length > 5 ? ', …' : ''}.`);
   if (workflowScan.error) limitations.push(`Workflow scan failed: ${workflowScan.error.message}. The other results are still complete.`);
   else if (workflowScan.failures.length) limitations.push(`${workflowScan.failures.length} workflow definition(s) could not be read and were skipped: ${workflowScan.failures.slice(0, 5).join(', ')}${workflowScan.failures.length > 5 ? ', …' : ''}.`);
+  if (fieldExpressionScan.error) limitations.push(`Field expression scan failed: ${fieldExpressionScan.error.message}. The other results are still complete.`);
+  else if (fieldExpressionScan.failures.length) limitations.push(`${fieldExpressionScan.failures.length} field expression(s) could not be read and were skipped: ${fieldExpressionScan.failures.slice(0, 5).join(', ')}${fieldExpressionScan.failures.length > 5 ? ', …' : ''}.`);
   if (hookError) limitations.push(`Service Hook rules could not be read (${hookError.message}); hook conditions were not checked and "Runs as" may omit Service Hooks.`);
   if (customCodeScan.error) limitations.push(`Custom code scan failed: ${customCodeScan.error.message}. The other results are still complete.`);
   else {
@@ -112,17 +121,20 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
     field: { objectName, fieldName, label: selected.label, dataType: selected.type },
     formulaDependencies: formulaResults,
     workflows: workflowResults,
+    fieldExpressions: fieldExpressionResults,
     customCode: customCodeResults,
     coverage: {
       objectsScanned: schemaScan.objectsScanned,
       fieldsScanned,
       workflowsScanned: workflowScan.error ? 0 : workflowScan.workflowsScanned,
+      fieldExpressionsScanned: fieldExpressionScan.error ? 0 : fieldExpressionScan.fieldExpressionsScanned,
       customCodeProjectsScanned: customCodeScan.error ? 0 : customCodeScan.projectsScanned,
       customCodeFilesScanned: customCodeScan.error ? 0 : customCodeScan.filesScanned,
       serviceHooksScanned: hooks.length,
       collectors: [
         { key: 'formulaDependencies', label: 'Formula dependencies (all objects)', status: schemaScan.failures.length ? 'partial' : 'complete', matches: formulaResults.length },
         { key: 'workflows', label: 'Workflow references', status: workflowStatus, matches: workflowResults.length },
+        { key: 'fieldExpressions', label: 'Field expression references', status: fieldExpressionStatus, matches: fieldExpressionResults.length },
         { key: 'customCode', label: 'Custom code references', status: customCodeStatus, matches: customCodeResults.length }
       ]
     },

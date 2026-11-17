@@ -154,12 +154,13 @@ function table(headers, rows) {
 }
 function renderUsage(result) {
   const workflows = result.workflows ?? [];
+  const fieldExpressions = result.fieldExpressions ?? [];
   const customCode = result.customCode ?? [];
-  const total = result.formulaDependencies.length + workflows.length + customCode.length;
+  const total = result.formulaDependencies.length + workflows.length + fieldExpressions.length + customCode.length;
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
     ...result.coverage.collectors.map((item) => `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
+    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#formula-section').innerHTML = usageSection('Formula dependencies', result.formulaDependencies.length, 'No formula dependencies found',
@@ -171,6 +172,11 @@ function renderUsage(result) {
   $('#workflow-section').innerHTML = usageSection('Workflows', workflows.length, 'No workflow references found',
     table(['Workflow name', 'Type'], workflows.map((item) => [
       referenceTitle(item.workflowName, item.viewUrl), escapeHtml(item.usage)
+    ])));
+  $('#fieldexpression-section').innerHTML = usageSection('Field expressions', fieldExpressions.length, 'No field expression references found',
+    table(['Field expression name', 'Type'], fieldExpressions.map((item) => [
+      `${referenceTitle(item.expressionName, item.viewUrl)}${item.active === false ? ' <span class="muted">(inactive)</span>' : ''}`,
+      escapeHtml(item.usage)
     ])));
   renderCustomCode(customCode);
 }

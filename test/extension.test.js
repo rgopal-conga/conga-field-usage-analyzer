@@ -86,6 +86,8 @@ function tenantFetch() {
     ] } });
     if (pathname.endsWith('/dependency-fields')) return json({ Success: true, Data: [] });
     if (pathname === '/api/workflow/v1/query/WorkflowDefinition') return json({ Data: [], TotalCount: 0 });
+    if (pathname === '/api/search/v1/objects/FieldExpression/query') return json({ Data: [{ Id: 'fe-1', Name: 'Status filter', IsActive: true, UpdateField: 'Stage' }], TotalCount: 1 });
+    if (pathname === '/api/revenue-admin/v1/field-expressions/fe-1') return json({ Data: { Id: 'fe-1', Name: 'Status filter', UpdateObject: 'Agreement', UpdateField: 'Stage', FilterExpression: { Expression: 'Agreement.Status == "Active"' } } });
     if (pathname === '/api/extensibility/v1/servicehooks/rules') return json({ Success: true, Data: [] });
     if (pathname === '/api/extensibility/v1/callbacks') return json([]);
     if (pathname === '/api/extensibility/v1/customcode/api-resource') return json([]);
@@ -117,6 +119,7 @@ test('the built extension core runs the full flow in-page against the tenant', a
   const scan = await api.handle({ method: 'POST', pathname: '/api/platform/usage-scan', body: { ...connection, objectName: 'Agreement', fieldName: 'Status' } });
   assert.equal(scan.status, 200);
   assert.deepEqual(scan.body.formulaDependencies.map((item) => item.fieldName), ['StatusLabel']);
+  assert.deepEqual(scan.body.fieldExpressions.map((item) => [item.expressionName, item.usage, item.viewUrl]), [['Status filter', 'Filter expression', 'https://rls.congacloud.com/cadmin/field-expression/fe-1']]);
   assert.equal(scan.body.customCode.length, 1, 'ZIP fallback is decompressed in-page');
   assert.equal(scan.body.customCode[0].confidence, 'Exact');
   assert.equal(scan.body.customCode[0].viewUrl, 'https://rls.congacloud.com/cc/ZipProject');
