@@ -7,6 +7,7 @@ import { normalizePlatformUrl } from '../server/platformUrl.js';
 
 let upstream; let app; let upstreamUrl; let baseUrl;
 const observed = { apiHeaders: [], requests: [] };
+let omitObjectHasMore = false;
 const objects = Array.from({ length: 251 }, (_, index) => ({
   Name: index === 250 ? 'Object250' : `Object${String(index).padStart(3, '0')}`,
   DisplayName: index === 250 ? 'Late Object' : `Object Label ${String(index).padStart(3, '0')}`,
@@ -45,6 +46,7 @@ before(async () => {
       const page = Number(url.searchParams.get('pageNumber')); const pageSize = Number(url.searchParams.get('pageSize'));
       if (pageSize === 1) return json(response, 200, { Success: true, Data: [objects[0]], HasMoreRecords: false });
       const start = (page - 1) * pageSize; const data = objects.slice(start, start + pageSize);
+      if (omitObjectHasMore) return json(response, 200, { Success: true, Data: data });
       return json(response, 200, { Success: true, Data: data, HasMoreRecords: start + pageSize < objects.length });
     }
     if (url.pathname === '/api/schema/v1/objects/Object250') return json(response, 200, { Success: true, Data: { Name: 'Object250', DisplayName: 'Late Object', FieldMetadata: fields } });
@@ -132,4 +134,15 @@ test('accepts bounded Conga hosts and rejects unsafe identifiers and tokens', as
   assert.equal((await post('/api/platform/validate', credentials({ bearerToken: 'invalid-token' }))).status, 401);
   assert.equal((await post('/api/platform/fields/search', credentials({ objectName: '../secret', query: '' }))).status, 400);
   assert.equal((await post('/api/platform/objects/search', credentials({ userId: 'bad user id' }))).status, 400);
+});
+
+test('keeps paging objects when the platform omits HasMoreRecords', async () => {
+  omitObjectHasMore = true;
+  try {
+    const response = await post('/api/platform/objects/search', credentials({ query: 'Late Object', limit: 50 }));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.totalScanned, 251);
+    assert.equal(body.items[0].name, 'Object250');
+  } finally { omitObjectHasMore = false; }
 });

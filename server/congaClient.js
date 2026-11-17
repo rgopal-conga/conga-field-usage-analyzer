@@ -77,7 +77,9 @@ export class CongaClient {
         protected: Boolean(pick(item, 'IsProtected', 'isProtected')),
         deprecated: Boolean(pick(item, 'IsDeprecated', 'isDeprecated'))
       })).filter((item) => item.name));
-      const hasMore = Boolean(pick(payload, 'HasMoreRecords', 'hasMoreRecords'));
+      // Some environments omit HasMoreRecords; a full page then means there may be more.
+      const explicitHasMore = pick(payload, 'HasMoreRecords', 'hasMoreRecords');
+      const hasMore = explicitHasMore === undefined ? data.length >= pageSize : Boolean(explicitHasMore);
       if (!hasMore || data.length === 0) break;
       if (pageNumber === 100) throw new CongaApiError('Object metadata exceeded the 100-page safety limit', 502);
     }
