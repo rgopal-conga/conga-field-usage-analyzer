@@ -123,10 +123,9 @@ function renderUsage(result) {
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
     ...result.coverage.collectors.map((item) => `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)`
+    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
-  $('#limitations-section').innerHTML = usageSection('Limitations', result.limitations.length, 'None', `<ul class="plain-list">${result.limitations.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#formula-section').innerHTML = usageSection('Formula dependencies', result.formulaDependencies.length, 'No formula dependencies found',
     table(['Object', 'Field name', 'Formula'], result.formulaDependencies.map((item) => [
       escapeHtml(item.objectName),
@@ -144,16 +143,41 @@ function runsAsText(item) {
   return item.runsAs.map((entry) => `<div><strong>${escapeHtml(entry.type)}</strong> ${escapeHtml(entry.name)}${entry.objectName ? ` <span class="muted">on ${escapeHtml(entry.objectName)}</span>` : ''}${entry.active === false ? ' <span class="muted">(inactive)</span>' : ''}</div>`).join('');
 }
 function confidenceBadge(value) { return `<span class="confidence confidence-${escapeHtml(String(value).toLowerCase())}">${escapeHtml(value)}</span>`; }
+function customCodeLocation(item) {
+  if (item.access === 'Condition') {
+    return `<strong>Service Hook condition</strong>${item.projectName ? `<div class="muted">${referenceTitle(item.projectName, item.viewUrl)}</div>` : ''}`;
+  }
+  return `${referenceTitle(item.projectName, item.viewUrl)}<div class="muted">${escapeHtml(item.filePath)}:${escapeHtml(item.line)}</div>`;
+}
+function filterCustomCode(section, query) {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = [...section.querySelectorAll('tbody tr')];
+  let shown = 0;
+  for (const row of rows) {
+    const text = row.textContent.toLowerCase();
+    const visible = terms.every((term) => text.includes(term));
+    row.classList.toggle('hidden', !visible);
+    if (visible) shown += 1;
+  }
+  section.querySelector('.table-search-count').textContent = terms.length ? `${shown} of ${rows.length} shown` : '';
+  section.querySelector('.table-search-empty').classList.toggle('hidden', shown > 0);
+}
 function renderCustomCode(items) {
-  $('#customcode-section').innerHTML = usageSection('Custom code', items.length, 'No custom code references found',
+  // Reuses existing styles (.top-actions, .search-box) because the CSP blocks inline styles.
+  const search = '<div class="top-actions"><div class="search-box"><span class="muted" aria-hidden="true">⌕</span><input type="search" class="table-search-input" placeholder="Search custom code results" aria-label="Search custom code results" autocomplete="off" spellcheck="false"></div><span class="table-search-count muted"></span></div>';
+  const empty = '<div class="table-search-empty muted hidden">No results match your search.</div>';
+  $('#customcode-section').innerHTML = usageSection('Custom code', items.length, 'No custom code references found', search +
     table(['Project / file', 'Class · method', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
-      `${referenceTitle(item.projectName, item.viewUrl)}<div class="muted">${escapeHtml(item.filePath)}:${escapeHtml(item.line)}</div>`,
+      customCodeLocation(item),
       escapeHtml([item.className, item.methodName].filter(Boolean).join(' · ') || '—'),
       escapeHtml(item.access),
       confidenceBadge(item.confidence),
       runsAsText(item),
       `<code>${escapeHtml(item.snippet)}</code>`
-    ])));
+    ])) + empty);
+  const section = $('#customcode-section');
+  const input = section.querySelector('.table-search-input');
+  if (input) input.addEventListener('input', () => filterCustomCode(section, input.value));
 }
 function safeHref(value) { try { const url = new URL(value); return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null; } catch { return null; } }
 function referenceTitle(text, viewUrl) { const href = viewUrl && safeHref(viewUrl); return href ? `<a class="reference-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="Open in Conga Platform">${escapeHtml(text)} <span aria-hidden="true">↗</span></a>` : escapeHtml(text); }
