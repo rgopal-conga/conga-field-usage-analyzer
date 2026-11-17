@@ -90,7 +90,7 @@ const agreementFields = [
   { Id: 'f2', FieldName: 'ext_RenewalTerm', DisplayName: 'Renewal Term', DataType: 'Integer' }
 ];
 
-let upstream; let app; let upstreamUrl; let baseUrl; let customCodeMode = 'ok';
+let upstream; let app; let upstreamUrl; let baseUrl; let customCodeMode = 'ok'; let hooksMode = 'ok';
 const requests = [];
 function json(response, status, payload) { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(payload)); }
 
@@ -102,7 +102,7 @@ before(async () => {
     if (url.pathname === '/api/metadata/v1/objects') return json(response, 200, { Success: true, Data: [{ Name: 'Agreement', DisplayName: 'Agreement' }], HasMoreRecords: false });
     if (url.pathname === '/api/schema/v1/objects/Agreement') return json(response, 200, { Success: true, Data: { Name: 'Agreement', FieldMetadata: agreementFields } });
     if (url.pathname === '/api/workflow/v1/query/WorkflowDefinition') return json(response, 200, { Success: true, Data: [], TotalCount: 0 });
-    if (url.pathname === '/api/extensibility/v1/servicehooks/rules') return json(response, 200, { Success: true, Data: hooks });
+    if (url.pathname === '/api/extensibility/v1/servicehooks/rules') return hooksMode === 'fail' ? json(response, 500, { Message: 'Hooks unavailable' }) : json(response, 200, { Success: true, Data: hooks });
     if (url.pathname === '/api/extensibility/v1/customcode') {
       if (customCodeMode === 'fail') return json(response, 500, { Message: 'Extensibility unavailable' });
       return json(response, 200, { Success: true, Data: Object.values(projects).map(({ Name, Status, Version }) => ({ Name, Status, Version })) });
@@ -189,8 +189,19 @@ test('a failing custom code API does not break the other collectors', async () =
     assert.deepEqual(result.customCode, []);
     assert.equal(result.coverage.collectors.find((item) => item.key === 'customCode').status, 'failed');
     assert.ok(result.limitations.some((text) => /Custom code scan failed/.test(text)));
-    assert.equal(result.coverage.collectors.find((item) => item.key === 'serviceHooks').status, 'complete');
+    assert.equal(result.coverage.collectors.find((item) => item.key === 'workflows').status, 'complete');
   } finally { customCodeMode = 'ok'; }
+});
+
+test('an unreadable Service Hook list only drops the hook wiring', async () => {
+  hooksMode = 'fail';
+  try {
+    const result = await scan('ext_RenewalTerm');
+    assert.ok(result.customCode.length > 0);
+    assert.ok(result.customCode.every((item) => !(item.runsAs ?? []).some((entry) => entry.type === 'Service Hook')));
+    assert.ok(result.limitations.some((text) => /Service Hook rules could not be read/.test(text)));
+    assert.equal(result.serviceHooks, undefined);
+  } finally { hooksMode = 'ok'; }
 });
 
 test('lexer separates strings and comments, including verbatim strings', () => {

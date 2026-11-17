@@ -111,7 +111,7 @@ before(async () => {
   });
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
   upstreamUrl = `http://127.0.0.1:${upstream.address().port}`;
-  app = createAppServer({ platformUrlOptions: { allowedHosts: ['127.0.0.1'], allowInsecureForTests: true, allowAnyPortForTests: true }, linkTemplates: { serviceHook: '{platformUrl}/admin/service-hooks/{id}', field: '{platformUrl}/admin/objects/{objectName}/fields/{id}', workflow: '{platformUrl}/admin/workflows/{id}' } });
+  app = createAppServer({ platformUrlOptions: { allowedHosts: ['127.0.0.1'], allowInsecureForTests: true, allowAnyPortForTests: true }, linkTemplates: { field: '{platformUrl}/admin/objects/{objectName}/fields/{id}', workflow: '{platformUrl}/admin/workflows/{id}' } });
   await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${app.address().port}`;
 });
@@ -146,14 +146,14 @@ test('field search scans the complete schema beyond 200 and searches data type',
   const typeResult = await byType.json(); assert.ok(typeResult.totalMatches > 10); assert.ok(typeResult.items.every((field) => field.type === 'Currency'));
 });
 
-test('usage scan returns formula dependencies and exact Service Hook condition matches', async () => {
+test('usage scan returns formula dependencies and no separate Service Hook section', async () => {
   const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }));
   assert.equal(response.status, 200); const result = await response.json();
-  assert.equal(result.coverage.objectsScanned, 251); assert.equal(result.coverage.serviceHooksScanned, 202); assert.equal(result.coverage.objectScopedHooks, 2);
+  assert.equal(result.coverage.objectsScanned, 251);
   assert.ok(result.formulaDependencies.some((item) => item.fieldName === 'Field249' && item.direction === 'used-by'));
   assert.ok(!result.formulaDependencies.some((item) => item.source === 'Dependency metadata'));
-  assert.equal(result.serviceHooks.length, 1); assert.equal(result.serviceHooks[0].name, 'TargetFieldHook'); assert.equal(result.serviceHooks[0].condition, 'Object250.TargetField == true');
-  assert.ok(result.limitations.some((text) => /custom code was not analyzed/.test(text)));
+  assert.equal(result.serviceHooks, undefined);
+  assert.ok(!result.coverage.collectors.some((item) => item.key === 'serviceHooks'));
 });
 
 test('every operation remains stateless and requires credentials', async () => {
@@ -201,9 +201,6 @@ test('keeps paging objects when the platform omits HasMoreRecords', async () => 
 test('usage scan returns record IDs and view links built from the templates', async () => {
   const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }));
   const result = await response.json();
-  const hook = result.serviceHooks[0];
-  assert.equal(hook.recordId, 'hook-200');
-  assert.equal(hook.viewUrl, `${upstreamUrl}/admin/service-hooks/hook-200`);
   const formula = result.formulaDependencies.find((item) => item.fieldName === 'Field249');
   assert.equal(formula.recordId, 'field-id-249');
   assert.equal(formula.viewUrl, `${upstreamUrl}/admin/objects/Object250/fields/field-id-249`);
