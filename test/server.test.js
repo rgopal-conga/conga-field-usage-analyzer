@@ -47,6 +47,26 @@ function workflowDefinition(definitionId) {
     ] };
 }
 const workflowQueries = [];
+// Cross-object formulas: Object010 -> Object250 via lookup, Object011 -> Object010 -> Object250 (two hops),
+// Object012 has a TargetField path that leads to a different object, Object013 names the object directly,
+// Object014's only mention is inside a string literal, Object015's schema cannot be read.
+const crossObjectSchemas = {
+  Object010: [
+    { FieldName: 'Object250Id', DataType: 'Lookup', LookupObjectName: 'Object250' },
+    { FieldName: 'ViaLookup', DataType: 'Currency', IsCalculated: true, Expression: 'Object250Id.TargetField * 2', ExpressionDependency: ['Object250Id.TargetField'] }
+  ],
+  Object011: [
+    { FieldName: 'ParentId', DataType: 'Lookup', LookupObjectName: 'Object010' },
+    { FieldName: 'TwoHops', DataType: 'Currency', IsCalculated: true, Expression: 'ParentId.Object250Id.TargetField + 1' }
+  ],
+  Object012: [
+    { FieldName: 'OtherId', DataType: 'Lookup', LookupObjectName: 'Object001' },
+    { FieldName: 'WrongObject', DataType: 'Currency', IsCalculated: true, Expression: 'OtherId.TargetField + 1' }
+  ],
+  Object013: [{ FieldName: 'Named', DataType: 'Currency', IsCalculated: true, Expression: 'Object250.TargetField - 1' }],
+  Object014: [{ FieldName: 'InString', DataType: 'String', IsCalculated: true, Expression: 'CONCAT("Object250.TargetField", Name)' }],
+  Object015: 'fail'
+};
 function json(response, status, payload) { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(payload)); }
 async function post(path, payload) { return fetch(`${baseUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
 function credentials(extra = {}) { return { platformUrl: upstreamUrl, bearerToken: 'valid-token', userId: '', ...extra }; }
@@ -65,7 +85,11 @@ before(async () => {
       return json(response, 200, { Success: true, Data: data, HasMoreRecords: start + pageSize < objects.length });
     }
     if (url.pathname === '/api/schema/v1/objects/Object250') return json(response, 200, { Success: true, Data: { Name: 'Object250', DisplayName: 'Late Object', FieldMetadata: fields } });
-    if (url.pathname === '/api/metadata/v1/objects/Object250/fields/TargetField/dependency-fields') return json(response, 200, { Success: true, Data: [{ ObjectName: 'Object250', FieldName: 'DependentCrossField', DisplayName: 'Dependent Cross Field', DataType: 'Currency', Expression: 'TargetField + 1' }] });
+    const schemaMatch = url.pathname.match(/^\/api\/schema\/v1\/objects\/([^/]+)$/);
+    if (schemaMatch && crossObjectSchemas[schemaMatch[1]] === 'fail') return json(response, 500, { Message: 'Schema unavailable' });
+    if (schemaMatch) return json(response, 200, { Success: true, Data: { Name: schemaMatch[1], FieldMetadata: crossObjectSchemas[schemaMatch[1]] ?? [{ FieldName: 'Name', DataType: 'String' }] } });
+    if (url.pathname === '/api/metadata/v1/objects/Object250/fields/Field000/dependency-fields') return json(response, 400, { Success: false, Message: 'Get Field Dependencies is only supported for Picklist/MultiPicklist datatype, please contact System Admin for more info.' });
+    if (url.pathname === '/api/metadata/v1/objects/Object250/fields/Field001/dependency-fields') return json(response, 500, { Message: 'Dependency service unavailable' });
     if (url.pathname === '/api/workflow/v1/query/WorkflowDefinition' && request.method === 'POST') {
       let raw = ''; for await (const chunk of request) raw += chunk;
       const body = JSON.parse(raw); workflowQueries.push({ query: url.search, body });
@@ -124,9 +148,9 @@ test('field search scans the complete schema beyond 200 and searches data type',
 test('usage scan returns formula dependencies and exact Service Hook condition matches', async () => {
   const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }));
   assert.equal(response.status, 200); const result = await response.json();
-  assert.equal(result.coverage.fieldsScanned, 251); assert.equal(result.coverage.serviceHooksScanned, 202); assert.equal(result.coverage.objectScopedHooks, 2);
+  assert.equal(result.coverage.objectsScanned, 251); assert.equal(result.coverage.serviceHooksScanned, 202); assert.equal(result.coverage.objectScopedHooks, 2);
   assert.ok(result.formulaDependencies.some((item) => item.fieldName === 'Field249' && item.direction === 'used-by'));
-  assert.ok(result.formulaDependencies.some((item) => item.fieldName === 'DependentCrossField' && item.source === 'Dependency metadata'));
+  assert.ok(!result.formulaDependencies.some((item) => item.source === 'Dependency metadata'));
   assert.equal(result.serviceHooks.length, 1); assert.equal(result.serviceHooks[0].name, 'TargetFieldHook'); assert.equal(result.serviceHooks[0].condition, 'Object250.TargetField == true');
   assert.ok(result.limitations.some((text) => /custom code was not analyzed/.test(text)));
 });
@@ -182,8 +206,9 @@ test('usage scan returns record IDs and view links built from the templates', as
   const formula = result.formulaDependencies.find((item) => item.fieldName === 'Field249');
   assert.equal(formula.recordId, 'field-id-249');
   assert.equal(formula.viewUrl, `${upstreamUrl}/admin/objects/Object250/fields/field-id-249`);
-  const metadataOnly = result.formulaDependencies.find((item) => item.fieldName === 'DependentCrossField');
-  assert.equal(metadataOnly.viewUrl, null);
+  const crossObject = result.formulaDependencies.find((item) => item.fieldName === 'ViaLookup');
+  assert.equal(crossObject.objectName, 'Object010');
+  assert.equal(crossObject.viewUrl, null); // the mock schema returns no Id for this field, so no link is built
 });
 
 test('reference URLs encode values and skip links with missing or unsafe parts', () => {
@@ -226,4 +251,20 @@ test('workflow links default to the Platform workflow page and the field section
   const html = await (await fetch(baseUrl)).text();
   assert.doesNotMatch(html, /id="field-details"/);
   assert.match(html, /<details id="usage-panel"/);
+});
+
+test('usage scan no longer calls the picklist-only dependency endpoint', async () => {
+  const before = observed.requests.length;
+  const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'Field000' }));
+  assert.equal(response.status, 200);
+  assert.ok(!observed.requests.slice(before).some((path) => path.includes('dependency-fields')));
+});
+
+test('formula dependencies include formulas on other objects reached through lookups', async () => {
+  const result = await (await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }))).json();
+  const found = result.formulaDependencies.filter((item) => item.direction === 'used-by').map((item) => `${item.objectName}.${item.fieldName}`).sort();
+  assert.deepEqual(found, ['Object010.ViaLookup', 'Object011.TwoHops', 'Object013.Named', 'Object250.Field249']);
+  assert.ok(result.formulaDependencies.every((item) => item.expression || item.dependencies?.length));
+  assert.equal(result.coverage.collectors.find((item) => item.key === 'formulaDependencies').status, 'partial');
+  assert.ok(result.limitations.some((text) => /1 object schema\(s\) could not be read.*Object015/.test(text)));
 });

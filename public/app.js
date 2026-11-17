@@ -50,13 +50,12 @@ async function connect() {
   } catch (error) { pending.bearerToken = ''; state.connection = null; showError(error); }
   finally { button.disabled = false; button.innerHTML = '✓ Validate and load metadata'; }
 }
+function tenantName(platformUrl) { return new URL(platformUrl).hostname.split('.')[0]; }
 function activateConnection() {
-  const host = new URL(state.connection.platformUrl).hostname;
+  const tenant = tenantName(state.connection.platformUrl);
   $('#object-search').disabled = false; $('#object-search').value = ''; $('#field-search').value = ''; $('#field-search').disabled = true;
-  $('#platform-value').textContent = host; $('#storage-value').textContent = 'None';
-  $('#tenant-name').textContent = host; $('#tenant-environment').textContent = state.connection.userId ? 'Bearer · user context' : 'Bearer token';
-  $('#side-session').textContent = `${host} · connected`; $('#tenant-chip').classList.remove('hidden'); $('#disconnect').classList.remove('hidden');
-  $('#metadata-caption').textContent = 'Search spans all accessible metadata pages; only matching rows are returned.'; setMetadataStatus('success', '✓ Connected');
+  $('#tenant-name').textContent = tenant; $('#tenant-url').textContent = state.connection.platformUrl; $('#tenant-chip').title = state.connection.platformUrl;
+  $('#side-session').textContent = `${tenant} · connected`; $('#tenant-chip').classList.remove('hidden'); $('#disconnect').classList.remove('hidden');
 }
 async function searchObjects(query) {
   if (!state.connection) return;
@@ -66,7 +65,7 @@ async function searchObjects(query) {
   try {
     const result = await platformRequest('/api/platform/objects/search', { query, limit: 50 });
     if (sequence !== state.objectSearchSequence) return;
-    state.objectResults = result.items; $('#object-count').textContent = result.totalScanned.toLocaleString();
+    state.objectResults = result.items;
     $('#object-search-status').textContent = `${result.totalMatches.toLocaleString()} match${result.totalMatches === 1 ? '' : 'es'} across ${result.totalScanned.toLocaleString()} objects`;
     $('#object-options').innerHTML = result.items.length ? result.items.map((item, index) => `<button type="button" role="option" data-index="${index}"><strong>${escapeHtml(formatObject(item))}</strong>${item.category ? `<small>${escapeHtml(item.category)}</small>` : ''}</button>`).join('') : '<div class="combo-message">No matching objects</div>';
   } catch (error) { if (sequence === state.objectSearchSequence) { showError(error); $('#object-options').innerHTML = '<div class="combo-message error-text">Object search failed</div>'; } }
@@ -86,7 +85,7 @@ async function searchFields(query) {
   try {
     const result = await platformRequest('/api/platform/fields/search', { objectName: state.selectedObject.name, query, limit: 50 });
     if (sequence !== state.fieldSearchSequence) return;
-    state.fieldResults = result.items; $('#field-count').textContent = result.totalScanned.toLocaleString();
+    state.fieldResults = result.items;
     $('#field-search-status').textContent = `${result.totalMatches.toLocaleString()} match${result.totalMatches === 1 ? '' : 'es'} across ${result.totalScanned.toLocaleString()} fields`;
     $('#field-options').innerHTML = result.items.length ? result.items.map((item, index) => `<button type="button" role="option" data-index="${index}"><strong>${escapeHtml(formatField(item))}</strong></button>`).join('') : '<div class="combo-message">No matching fields</div>';
   } catch (error) { if (sequence === state.fieldSearchSequence) { showError(error); $('#field-options').innerHTML = '<div class="combo-message error-text">Field search failed</div>'; } }
@@ -112,8 +111,9 @@ async function runUsageScan() {
   finally { button.disabled = false; button.innerHTML = 'Find usage'; }
 }
 function usageSection(title, count, emptyText, body, open = false) {
-  if (!count) return `<div class="usage-section empty"><span class="section-title">${escapeHtml(title)}</span><span class="section-note">${escapeHtml(emptyText)}</span></div>`;
-  return `<details class="usage-section"${open ? ' open' : ''}><summary><span class="section-title">${escapeHtml(title)}</span><span class="section-count">${count}</span></summary>${body}</details>`;
+  const header = (tag) => `<${tag} class="section-row"><span class="section-arrow" aria-hidden="true"></span><span class="section-title">${escapeHtml(title)}</span><span class="section-count">${count}</span>${count ? '' : `<span class="section-note">${escapeHtml(emptyText)}</span>`}</${tag}>`;
+  if (!count) return `<div class="usage-section is-empty" aria-disabled="true">${header('div')}</div>`;
+  return `<details class="usage-section"${open ? ' open' : ''}>${header('summary')}${body}</details>`;
 }
 function table(headers, rows) {
   return `<table class="usage-table"><thead><tr>${headers.map((text) => `<th>${escapeHtml(text)}</th>`).join('')}</tr></thead><tbody>${rows.map((cells) => `<tr>${cells.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
@@ -124,7 +124,7 @@ function renderUsage(result) {
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
     ...result.coverage.collectors.map((item) => `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    `Scanned: ${result.coverage.fieldsScanned} fields, ${result.coverage.serviceHooksScanned} Service Hooks, ${result.coverage.workflowsScanned ?? 0} workflows`
+    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.serviceHooksScanned} Service Hooks, ${result.coverage.workflowsScanned ?? 0} workflows`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#limitations-section').innerHTML = usageSection('Limitations', result.limitations.length, 'None', `<ul class="plain-list">${result.limitations.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
@@ -132,7 +132,7 @@ function renderUsage(result) {
     table(['Object', 'Field name', 'Formula'], result.formulaDependencies.map((item) => [
       escapeHtml(item.objectName),
       `${referenceTitle(item.fieldName, item.viewUrl)}${item.direction === 'depends-on' ? ' <span class="muted">(selected field\'s own formula)</span>' : ''}`,
-      item.expression ? `<code>${escapeHtml(item.expression)}</code>` : '<span class="muted">Reported by dependency metadata</span>'
+      item.expression ? `<code>${escapeHtml(item.expression)}</code>` : `<code>${escapeHtml((item.dependencies ?? []).join(', '))}</code>`
     ])));
   $('#hook-section').innerHTML = usageSection('Service Hook conditions', result.serviceHooks.length, 'No Service Hook condition references found',
     table(['Service Hook', 'Condition', 'Status'], result.serviceHooks.map((item) => [
@@ -145,14 +145,12 @@ function renderUsage(result) {
 }
 function safeHref(value) { try { const url = new URL(value); return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null; } catch { return null; } }
 function referenceTitle(text, viewUrl) { const href = viewUrl && safeHref(viewUrl); return href ? `<a class="reference-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="Open in Conga Platform">${escapeHtml(text)} <span aria-hidden="true">↗</span></a>` : escapeHtml(text); }
-function emptyResult(text) { return `<div class="empty"><b>⌕</b><strong>${escapeHtml(text)}</strong><span>The collector completed successfully.</span></div>`; }
-function setMetadataStatus(kind, text) { $('#metadata-status').className = `pill ${kind}`; $('#metadata-status').textContent = text; }
 function disconnect() {
   if (state.connection) { state.connection.bearerToken = ''; state.connection.userId = ''; state.connection.platformUrl = ''; }
   state.connection = null; state.selectedObject = null; state.selectedField = null; state.objectResults = []; state.fieldResults = [];
   $('#bearer-token').value = ''; $('#user-id').value = ''; $('#object-search').value = ''; $('#field-search').value = ''; $('#object-search').disabled = true; $('#field-search').disabled = true; $('#run-scan').disabled = true;
-  closeOptions('object'); closeOptions('field'); $('#tenant-chip').classList.add('hidden'); $('#disconnect').classList.add('hidden'); $('#field-identity').classList.add('hidden'); $('#usage-results').classList.add('hidden'); $('#side-session').textContent = 'Not connected';
-  $('#object-count').textContent = '—'; $('#field-count').textContent = '—'; $('#platform-value').textContent = '—'; $('#storage-value').textContent = 'None'; $('#metadata-caption').textContent = 'Connect to load live Conga Platform schema metadata.'; $('#object-search-status').textContent = ''; $('#field-search-status').textContent = ''; setMetadataStatus('neutral', '● Disconnected'); $('#connect-dialog').classList.remove('hidden');
+  closeOptions('object'); closeOptions('field'); $('#tenant-chip').classList.add('hidden'); $('#disconnect').classList.add('hidden'); $('#field-identity').classList.add('hidden'); $('#usage-results').classList.add('hidden'); $('#side-session').textContent = 'Not connected'; $('#tenant-name').textContent = ''; $('#tenant-url').textContent = '';
+  $('#object-search-status').textContent = ''; $('#field-search-status').textContent = ''; $('#connect-dialog').classList.remove('hidden');
 }
 function toggleTokenVisibility() { const input = $('#bearer-token'); const showing = input.type === 'text'; input.type = showing ? 'password' : 'text'; $('#toggle-token').textContent = showing ? 'Show' : 'Hide'; }
 

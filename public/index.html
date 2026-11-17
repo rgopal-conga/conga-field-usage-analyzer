@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0d2030"><meta name="description" content="Find where Conga Platform fields are used across a tenant."><title>Conga Field Usage Analyzer</title><link rel="stylesheet" href="/styles.css"></head>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0B004A"><meta name="description" content="Find where Conga Platform fields are used across a tenant."><title>Conga Field Usage Analyzer</title><link rel="stylesheet" href="/styles.css"></head>
 <body>
 <div class="app-shell">
   <aside class="sidebar">
@@ -8,7 +8,7 @@
     <div class="sidebar-bottom"><div class="security"><b>✓</b><div><strong>Standalone mode</strong><span>Server-side credentials</span></div></div><div class="user"><div class="avatar">API</div><div><strong>Platform connection</strong><span id="side-session">Not connected</span></div></div></div>
   </aside>
   <main>
-    <header class="topbar"><div><div class="breadcrumb">CONGA / FIELD USAGE ANALYZER</div><h1>Where is this field used?</h1></div><div class="top-actions"><div id="tenant-chip" class="tenant-chip hidden"><span class="online-dot"></span><strong id="tenant-name"></strong><small id="tenant-environment"></small></div><button id="disconnect" class="ghost hidden">↪ Disconnect</button></div></header>
+    <header class="topbar"><div><div class="breadcrumb">CONGA / FIELD USAGE ANALYZER</div><h1>Where is this field used?</h1></div><div class="top-actions"><div id="tenant-chip" class="tenant-chip hidden"><span class="online-dot"></span><strong id="tenant-name"></strong><small id="tenant-url"></small></div><button id="disconnect" class="ghost hidden">↪ Disconnect</button></div></header>
     <div class="content">
       <div id="error" class="error-banner hidden">⚠ <span></span></div>
       <section class="hero-card">
@@ -21,10 +21,6 @@
         <div id="field-identity" class="field-identity hidden"><code></code><span class="type"></span><span class="required hidden">Required</span><span class="calculated hidden">Calculated</span><span class="protected hidden">Protected</span></div>
       </section>
 
-      <section class="scan-summary metadata-summary">
-        <div class="summary-heading"><div><h2>Metadata connection</h2><p id="metadata-caption">Authenticate to load live Conga Platform schema metadata.</p></div><span id="metadata-status" class="pill neutral">● Disconnected</span></div>
-        <div class="metric-grid"><div class="metric"><span>OBJECTS SEARCHED</span><strong id="object-count">—</strong></div><div class="metric"><span>FIELDS SEARCHED</span><strong id="field-count">—</strong></div><div class="metric"><span>PLATFORM HOST</span><strong id="platform-value">—</strong></div><div class="metric"><span>PERSISTENCE</span><strong id="storage-value">None</strong></div></div>
-      </section>
 
       <section id="usage-results" class="results-section hidden">
         <details id="usage-panel" class="usage-panel" open>
@@ -35,7 +31,6 @@
             <div id="formula-section"></div>
             <div id="hook-section"></div>
             <div id="workflow-section"></div>
-            <p class="scan-boundary">Service Hooks are matched by configured condition only; their custom code is not analyzed. Workflows are matched on their latest version's configuration; fields built dynamically at runtime or referenced only inside custom code called by a workflow are not detected.</p>
           </div>
         </details>
       </section>
