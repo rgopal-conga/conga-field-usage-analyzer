@@ -19,7 +19,7 @@ function clearError() { $('#error').classList.add('hidden'); }
 function option(value, text) { return `<option value="${escapeHtml(value)}">${escapeHtml(text)}</option>`; }
 function connectionPayload(extra = {}) {
   if (!state.connection) throw new Error('Connect to Conga Platform first');
-  return { platformUrl: state.connection.platformUrl, bearerToken: state.connection.bearerToken, userId: state.connection.userId, ...extra };
+  return { platformUrl: state.connection.platformUrl, bearerToken: state.connection.bearerToken, ...extra };
 }
 async function platformRequest(path, extra = {}) {
   return request(path, { method: 'POST', body: JSON.stringify(connectionPayload(extra)) });
@@ -32,20 +32,18 @@ function formatField(item) { return `${item.label} - ${item.name} - ${item.type}
 async function initialize() {
   try {
     state.config = await request('/api/config');
-    const urls = state.config.urlPolicy.suggestedUrls;
-    $('#platform-url-options').innerHTML = urls.map((url) => option(url, url)).join('');
-    $('#platform-url').value = urls[0] ?? '';
+    $('#platform-url').value = '';
     $('#connect-dialog').classList.remove('hidden');
   } catch (error) { showError(error); }
 }
 async function connect() {
   const button = $('#connect');
-  const pending = { platformUrl: $('#platform-url').value.trim(), bearerToken: $('#bearer-token').value, userId: $('#user-id').value.trim() };
+  const pending = { platformUrl: $('#platform-url').value.trim(), bearerToken: $('#bearer-token').value };
   try {
     clearError(); button.disabled = true; button.innerHTML = '<span class="spin">◌</span> Validating';
     const validation = await request('/api/platform/validate', { method: 'POST', body: JSON.stringify(pending) });
     state.connection = { ...pending, platformUrl: validation.platformUrl, organizationName: validation.organizationName };
-    $('#bearer-token').value = ''; $('#user-id').value = ''; $('#connect-dialog').classList.add('hidden');
+    $('#bearer-token').value = ''; $('#connect-dialog').classList.add('hidden');
     activateConnection(); await searchObjects('');
   } catch (error) { pending.bearerToken = ''; state.connection = null; showError(error); }
   finally { button.disabled = false; button.innerHTML = '✓ Validate and load metadata'; }
@@ -146,9 +144,9 @@ function renderUsage(result) {
 function safeHref(value) { try { const url = new URL(value); return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null; } catch { return null; } }
 function referenceTitle(text, viewUrl) { const href = viewUrl && safeHref(viewUrl); return href ? `<a class="reference-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="Open in Conga Platform">${escapeHtml(text)} <span aria-hidden="true">↗</span></a>` : escapeHtml(text); }
 function disconnect() {
-  if (state.connection) { state.connection.bearerToken = ''; state.connection.userId = ''; state.connection.platformUrl = ''; }
+  if (state.connection) { state.connection.bearerToken = ''; state.connection.platformUrl = ''; }
   state.connection = null; state.selectedObject = null; state.selectedField = null; state.objectResults = []; state.fieldResults = [];
-  $('#bearer-token').value = ''; $('#user-id').value = ''; $('#object-search').value = ''; $('#field-search').value = ''; $('#object-search').disabled = true; $('#field-search').disabled = true; $('#run-scan').disabled = true;
+  $('#bearer-token').value = ''; $('#object-search').value = ''; $('#field-search').value = ''; $('#object-search').disabled = true; $('#field-search').disabled = true; $('#run-scan').disabled = true;
   closeOptions('object'); closeOptions('field'); $('#tenant-chip').classList.add('hidden'); $('#disconnect').classList.add('hidden'); $('#field-identity').classList.add('hidden'); $('#usage-results').classList.add('hidden'); $('#side-session').textContent = 'Not connected'; $('#tenant-name').textContent = ''; $('#tenant-url').textContent = '';
   $('#object-search-status').textContent = ''; $('#field-search-status').textContent = ''; $('#connect-dialog').classList.remove('hidden');
 }
@@ -163,6 +161,10 @@ $('#field-search').addEventListener('focus', () => { if (state.selectedObject) s
 $('#object-options').addEventListener('mousedown', (event) => { const button = event.target.closest('button[data-index]'); if (button) { event.preventDefault(); selectObject(state.objectResults[Number(button.dataset.index)]); } });
 $('#field-options').addEventListener('mousedown', (event) => { const button = event.target.closest('button[data-index]'); if (button) { event.preventDefault(); selectField(state.fieldResults[Number(button.dataset.index)]); } });
 document.addEventListener('mousedown', (event) => { if (!$('#object-combo').contains(event.target)) closeOptions('object'); if (!$('#field-combo').contains(event.target)) closeOptions('field'); });
-$('#connect').addEventListener('click', connect); $('#disconnect').addEventListener('click', disconnect); $('#run-scan').addEventListener('click', runUsageScan); $('#toggle-token').addEventListener('click', toggleTokenVisibility);
+$('#connect').addEventListener('click', connect);
+$('#feedback').addEventListener('click', () => { $('#feedback-dialog').classList.remove('hidden'); $('#feedback-close').focus(); });
+$('#feedback-close').addEventListener('click', () => $('#feedback-dialog').classList.add('hidden'));
+$('#feedback-dialog').addEventListener('click', (event) => { if (event.target.id === 'feedback-dialog') $('#feedback-dialog').classList.add('hidden'); });
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') $('#feedback-dialog').classList.add('hidden'); }); $('#disconnect').addEventListener('click', disconnect); $('#run-scan').addEventListener('click', runUsageScan); $('#toggle-token').addEventListener('click', toggleTokenVisibility);
 window.addEventListener('pagehide', () => { if (state.connection) state.connection.bearerToken = ''; });
 initialize();
