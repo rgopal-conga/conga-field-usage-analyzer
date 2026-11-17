@@ -20,7 +20,7 @@
 .usage-section.is-empty .section-title{color:#4d4d4d}
 .section-title{font-weight:700;font-size:13px;color:#1a1a1a}.section-note,.muted{color:var(--muted);font-size:12px}
 .section-count{font-size:11px;font-weight:700;background:#ebe7fd;border-radius:999px;padding:2px 8px;color:#4b37c8;min-width:22px;text-align:center}.usage-section.is-empty .section-count{background:#f2f2f2;color:#808080}
-.usage-section>:not(summary){margin:0 0 12px 26px}
+.usage-section>:not(.section-row){margin:0 0 12px 26px}
 .plain-list{margin:0;padding-left:18px;font-size:12px;line-height:1.7}
 .usage-table{width:calc(100% - 26px);border-collapse:collapse;font-size:12px}.usage-table th,.usage-table td{text-align:left;padding:7px 10px;border-bottom:1px solid #f2f2f2;vertical-align:top}.usage-table th{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#0b004a;background:#f6f4fe}.usage-table code{font:11px ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
 .reference-link{color:#5b45d6}

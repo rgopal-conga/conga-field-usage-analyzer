@@ -77,6 +77,7 @@ before(async () => {
     observed.apiHeaders.push(request.headers); observed.requests.push(url.pathname + url.search);
     if (request.headers.authorization === 'Bearer invalid-token') return json(response, 401, { Message: 'Invalid or expired bearer token' });
     if (request.headers.authorization !== 'Bearer valid-token') return json(response, 401, { Message: 'Missing bearer token' });
+    if (url.pathname === '/api/user-management/v1/organization/info') return json(response, 200, { Success: true, Data: { Id: 'org-1', Name: 'Conga Preview Org' } });
     if (url.pathname === '/api/metadata/v1/objects') {
       const page = Number(url.searchParams.get('pageNumber')); const pageSize = Number(url.searchParams.get('pageSize'));
       if (pageSize === 1) return json(response, 200, { Success: true, Data: [objects[0]], HasMoreRecords: false });
@@ -128,7 +129,7 @@ test('serves searchable standalone UI without persistent storage APIs', async ()
 test('validates URL and token without creating a cookie or server session', async () => {
   const response = await post('/api/platform/validate', credentials({ bearerToken: 'Bearer valid-token' }));
   assert.equal(response.status, 200); assert.equal(response.headers.get('set-cookie'), null);
-  assert.deepEqual(await response.json(), { valid: true, platformUrl: upstreamUrl, hasUserContext: false });
+  assert.deepEqual(await response.json(), { valid: true, platformUrl: upstreamUrl, hasUserContext: false, organizationName: 'Conga Preview Org' });
 });
 
 test('object search scans beyond 200 and returns Label plus API name data', async () => {

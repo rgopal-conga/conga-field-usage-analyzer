@@ -63,6 +63,19 @@ export class CongaClient {
     await this.request('/api/metadata/v1/objects', { pageSize: 1, pageNumber: 1 });
   }
 
+  // Org display name from /api/user-management/v1/organization/info. The response shape is not
+  // documented here, so common envelope/key spellings are tried; null when none is present.
+  async getOrganizationName() {
+    const payload = await this.request('/api/user-management/v1/organization/info');
+    const data = pick(payload, 'Data', 'data') ?? payload;
+    const org = pick(data, 'Organization', 'organization') ?? data;
+    for (const source of [org, data, payload]) {
+      const name = pick(source, 'OrganizationName', 'organizationName', 'OrgName', 'orgName', 'DisplayName', 'displayName', 'Name', 'name');
+      if (typeof name === 'string' && name.trim()) return name.trim();
+    }
+    return null;
+  }
+
   async listObjects() {
     const all = [];
     const pageSize = 200;

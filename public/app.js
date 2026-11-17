@@ -44,7 +44,7 @@ async function connect() {
   try {
     clearError(); button.disabled = true; button.innerHTML = '<span class="spin">◌</span> Validating';
     const validation = await request('/api/platform/validate', { method: 'POST', body: JSON.stringify(pending) });
-    state.connection = { ...pending, platformUrl: validation.platformUrl };
+    state.connection = { ...pending, platformUrl: validation.platformUrl, organizationName: validation.organizationName };
     $('#bearer-token').value = ''; $('#user-id').value = ''; $('#connect-dialog').classList.add('hidden');
     activateConnection(); await searchObjects('');
   } catch (error) { pending.bearerToken = ''; state.connection = null; showError(error); }
@@ -52,7 +52,7 @@ async function connect() {
 }
 function tenantName(platformUrl) { return new URL(platformUrl).hostname.split('.')[0]; }
 function activateConnection() {
-  const tenant = tenantName(state.connection.platformUrl);
+  const tenant = state.connection.organizationName || tenantName(state.connection.platformUrl);
   $('#object-search').disabled = false; $('#object-search').value = ''; $('#field-search').value = ''; $('#field-search').disabled = true;
   $('#tenant-name').textContent = tenant; $('#tenant-url').textContent = state.connection.platformUrl; $('#tenant-chip').title = state.connection.platformUrl;
   $('#side-session').textContent = `${tenant} · connected`; $('#tenant-chip').classList.remove('hidden'); $('#disconnect').classList.remove('hidden');

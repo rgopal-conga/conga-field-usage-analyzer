@@ -48,7 +48,9 @@ export function createAppServer({ fetchImpl = fetch, platformUrlOptions = {}, li
         const input = await readJson(request);
         const connection = clientFromInput(input, fetchImpl, platformUrlOptions);
         await connection.client.validateConnection();
-        return send(response, 200, { valid: true, platformUrl: connection.platformUrl, hasUserContext: connection.hasUserContext });
+        // The org name is display-only: a failing org-info call must not block the connection.
+        const organizationName = await connection.client.getOrganizationName().catch(() => null);
+        return send(response, 200, { valid: true, platformUrl: connection.platformUrl, hasUserContext: connection.hasUserContext, organizationName });
       }
       if (url.pathname === '/api/platform/objects/search' && request.method === 'POST') {
         const input = await readJson(request);
