@@ -2,6 +2,7 @@ import { CongaApiError } from './congaClient.js';
 import { buildReferenceUrl } from './referenceLinks.js';
 import { scanWorkflows } from './workflowScanner.js';
 import { findFormulaReferences, loadAllSchemas } from './formulaScanner.js';
+import { scanCustomCode } from './customCodeScanner.js';
 
 function pick(object, ...names) {
   for (const name of names) if (object && object[name] !== undefined) return object[name];
@@ -20,10 +21,12 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
     throw new CongaApiError('Object or field name is invalid', 400);
   }
 
-  const [schemaScan, hooks, workflowScan] = await Promise.all([
+  const hooksPromise = client.listServiceHooks();
+  const [schemaScan, hooks, workflowScan, customCodeScan] = await Promise.all([
     loadAllSchemas(client, objectName),
-    client.listServiceHooks(),
-    scanWorkflows(client, objectName, fieldName).catch((error) => ({ error }))
+    hooksPromise,
+    scanWorkflows(client, objectName, fieldName).catch((error) => ({ error })),
+    hooksPromise.then((list) => scanCustomCode(client, objectName, fieldName, { hooks: list })).catch((error) => ({ error }))
   ]);
   const fields = schemaScan.schemas.get(objectName.toLowerCase()) ?? [];
   const selected = fields.find((field) => field.name === fieldName);
@@ -81,19 +84,33 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
     item.viewUrl = buildReferenceUrl(linkTemplates.workflow, { platformUrl, id: item.recordId, objectName: item.objectName, name: item.workflowName });
   }
   const workflowStatus = workflowScan.error ? 'failed' : workflowScan.failures.length ? 'partial' : 'complete';
+  const customCodeResults = customCodeScan.error ? [] : customCodeScan.results;
+  for (const item of customCodeResults) {
+    item.viewUrl = buildReferenceUrl(linkTemplates.customCode, { platformUrl, id: item.projectName, objectName, fieldName, name: item.projectName });
+  }
+  const customCodeStatus = customCodeScan.error ? 'failed' : customCodeScan.failures.length ? 'partial' : 'complete';
   const limitations = [];
   if (objectHooks.length > serviceHookResults.length) {
-    limitations.push(`${objectHooks.length - serviceHookResults.length} additional Service Hook(s) target this object but do not reference the field in their configured condition. Their custom code was not analyzed.`);
+    limitations.push(customCodeScan.error
+      ? `${objectHooks.length - serviceHookResults.length} additional Service Hook(s) target this object but do not reference the field in their configured condition. Their custom code was not analyzed.`
+      : `${objectHooks.length - serviceHookResults.length} additional Service Hook(s) target this object but do not reference the field in their configured condition. Their custom code is covered under Custom code.`);
   }
   if (schemaScan.failures.length) limitations.push(`${schemaScan.failures.length} object schema(s) could not be read, so their formulas were not checked: ${schemaScan.failures.slice(0, 5).join(', ')}${schemaScan.failures.length > 5 ? ', …' : ''}.`);
   if (workflowScan.error) limitations.push(`Workflow scan failed: ${workflowScan.error.message}. Formula and Service Hook results are still complete.`);
   else if (workflowScan.failures.length) limitations.push(`${workflowScan.failures.length} workflow definition(s) could not be read and were skipped: ${workflowScan.failures.slice(0, 5).join(', ')}${workflowScan.failures.length > 5 ? ', …' : ''}.`);
+  if (customCodeScan.error) limitations.push(`Custom code scan failed: ${customCodeScan.error.message}. The other results are still complete.`);
+  else {
+    if (customCodeScan.failures.length) limitations.push(`${customCodeScan.failures.length} custom code project(s) could not be read and were skipped: ${customCodeScan.failures.slice(0, 5).join(', ')}${customCodeScan.failures.length > 5 ? ', …' : ''}.`);
+    limitations.push(...customCodeScan.notes);
+    if (customCodeResults.length) limitations.push('Custom code is matched as text (string literals and identifiers), not compiled. Field names built at runtime, or read through generic loops over all fields, are not detected. Review Probable and Possible matches before acting on them.');
+  }
 
   return {
     field: { objectName, fieldName, label: selected.label, dataType: selected.type },
     formulaDependencies: formulaResults,
     serviceHooks: serviceHookResults,
     workflows: workflowResults,
+    customCode: customCodeResults,
     coverage: {
       objectsScanned: schemaScan.objectsScanned,
       fieldsScanned,
@@ -101,10 +118,13 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
       objectScopedHooks: objectHooks.length,
       conditionMatches: serviceHookResults.length,
       workflowsScanned: workflowScan.error ? 0 : workflowScan.workflowsScanned,
+      customCodeProjectsScanned: customCodeScan.error ? 0 : customCodeScan.projectsScanned,
+      customCodeFilesScanned: customCodeScan.error ? 0 : customCodeScan.filesScanned,
       collectors: [
         { key: 'formulaDependencies', label: 'Formula dependencies (all objects)', status: schemaScan.failures.length ? 'partial' : 'complete', matches: formulaResults.length },
         { key: 'serviceHooks', label: 'Service Hook conditions', status: 'complete', matches: serviceHookResults.length },
-        { key: 'workflows', label: 'Workflow references', status: workflowStatus, matches: workflowResults.length }
+        { key: 'workflows', label: 'Workflow references', status: workflowStatus, matches: workflowResults.length },
+        { key: 'customCode', label: 'Custom code references', status: customCodeStatus, matches: customCodeResults.length }
       ]
     },
     limitations

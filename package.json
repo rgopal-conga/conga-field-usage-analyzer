@@ -1,12 +1,12 @@
 {
   "name": "conga-field-usage-analyzer",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "node --watch server/index.js",
     "start": "node server/index.js",
-    "build": "node --check server/index.js && node --check server/congaClient.js && node --check server/platformUrl.js && node --check server/usageScanner.js && node --check server/referenceLinks.js && node --check server/workflowScanner.js && node --check server/formulaScanner.js && node --check public/app.js",
+    "build": "node --check server/index.js && node --check server/congaClient.js && node --check server/platformUrl.js && node --check server/usageScanner.js && node --check server/referenceLinks.js && node --check server/workflowScanner.js && node --check server/formulaScanner.js && node --check server/customCodeScanner.js && node --check server/zipReader.js && node --check public/app.js",
     "test": "node --test",
     "check": "npm run build && npm test"
   },
