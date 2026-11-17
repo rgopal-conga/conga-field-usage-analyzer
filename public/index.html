@@ -26,22 +26,18 @@
         <div class="metric-grid"><div class="metric"><span>OBJECTS SEARCHED</span><strong id="object-count">—</strong></div><div class="metric"><span>FIELDS SEARCHED</span><strong id="field-count">—</strong></div><div class="metric"><span>PLATFORM HOST</span><strong id="platform-value">—</strong></div><div class="metric"><span>PERSISTENCE</span><strong id="storage-value">None</strong></div></div>
       </section>
 
-      <section id="field-details" class="results-section hidden">
-        <div class="results-header"><div><div class="result-count">{ }</div><div><h2 id="field-title">Field metadata</h2><p id="field-description">Live schema definition returned by Conga Platform.</p></div></div><span class="pill success">✓ Live metadata</span></div>
-        <div class="detail-grid">
-          <div><span>TECHNICAL NAME</span><strong id="detail-name"></strong></div><div><span>DATA TYPE</span><strong id="detail-type"></strong></div><div><span>ACCESS</span><strong id="detail-access"></strong></div><div><span>LOOKUP OBJECT</span><strong id="detail-lookup">—</strong></div>
-        </div>
-        <div id="formula-panel" class="notice hidden">ƒ <div><strong>Formula metadata</strong><span id="formula-text"></span><code id="formula-dependencies"></code></div></div>
-      </section>
-
       <section id="usage-results" class="results-section hidden">
-        <div class="results-header"><div><div id="usage-total" class="result-count">0</div><div><h2>Usage scan</h2><p id="usage-summary">Formula dependencies, Service Hook conditions and workflows.</p></div></div><span id="usage-status" class="pill success">✓ Complete</span></div>
-        <div id="coverage-grid" class="collector-grid usage-coverage"></div>
-        <div id="scan-limitations"></div>
-        <div class="usage-group"><div class="group-heading"><div><span class="group-icon">ƒ</span><div><h3>Formula dependencies</h3><p>Selected formula inputs and formula fields that reference the selected field.</p></div></div><strong id="formula-count">0</strong></div><div id="formula-results" class="reference-list"></div></div>
-        <div class="usage-group"><div class="group-heading"><div><span class="group-icon">⚡</span><div><h3>Service Hook conditions</h3><p>Exact field references found in configured hook conditions.</p></div></div><strong id="hook-count">0</strong></div><div id="hook-results" class="reference-list"></div></div>
-        <div class="usage-group"><div class="group-heading"><div><span class="group-icon">⇄</span><div><h3>Workflow references</h3><p>Latest version of every workflow definition: trigger conditions, activity properties and variables.</p></div></div><strong id="workflow-count">0</strong></div><div id="workflow-results" class="reference-list"></div></div>
-        <div class="dynamic-warning">ⓘ <p><strong>Current scan boundary.</strong> Service Hooks are matched by configured condition only. Object-scoped custom code is not downloaded or analyzed in this build, so hooks without a field reference in their condition are reported in limitations rather than claimed as field usage. Workflows are matched on their latest version's configuration; fields built dynamically at runtime or referenced only inside custom code called by a workflow are not detected.</p></div>
+        <details id="usage-panel" class="usage-panel" open>
+          <summary><span class="section-title">Usage scan</span><span id="usage-summary" class="section-note"></span><span id="usage-status" class="pill neutral"></span></summary>
+          <div class="usage-body">
+            <div id="coverage-section"></div>
+            <div id="limitations-section"></div>
+            <div id="formula-section"></div>
+            <div id="hook-section"></div>
+            <div id="workflow-section"></div>
+            <p class="scan-boundary">Service Hooks are matched by configured condition only; their custom code is not analyzed. Workflows are matched on their latest version's configuration; fields built dynamically at runtime or referenced only inside custom code called by a workflow are not detected.</p>
+          </div>
+        </details>
       </section>
     </div>
   </main>

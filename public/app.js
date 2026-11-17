@@ -75,7 +75,7 @@ function selectObject(item) {
   state.selectedObject = item; state.selectedField = null; state.fieldResults = [];
   $('#object-search').value = formatObject(item); closeOptions('object');
   $('#field-search').disabled = false; $('#field-search').value = ''; $('#field-search').placeholder = 'Search field label, API name, or data type';
-  $('#run-scan').disabled = true; $('#field-identity').classList.add('hidden'); $('#field-details').classList.add('hidden'); $('#usage-results').classList.add('hidden');
+  $('#run-scan').disabled = true; $('#field-identity').classList.add('hidden'); $('#usage-results').classList.add('hidden');
   searchFields(''); $('#field-search').focus();
 }
 async function searchFields(query) {
@@ -98,43 +98,60 @@ function selectField(field) {
 function renderField(field) {
   $('#field-identity code').textContent = `${state.selectedObject.name}.${field.name}`; $('#field-identity .type').textContent = field.type;
   for (const [selector, enabled] of [['.required', field.required], ['.calculated', field.calculated], ['.protected', field.protected]]) $('#field-identity').querySelector(selector).classList.toggle('hidden', !enabled);
-  $('#field-identity').classList.remove('hidden'); $('#field-title').textContent = field.label; $('#field-description').textContent = field.description || 'Live schema definition returned by Conga Platform.';
-  $('#detail-name').textContent = field.name; $('#detail-type').textContent = field.type; $('#detail-access').textContent = `${field.readAccess === false ? 'No read' : 'Read'} / ${field.writeAccess === false ? 'No write' : 'Write'}`; $('#detail-lookup').textContent = field.lookupObjectName || '—';
-  const hasFormula = Boolean(field.expression || field.expressionDependencies?.length); $('#formula-panel').classList.toggle('hidden', !hasFormula); $('#formula-text').textContent = field.expression || 'Expression dependency metadata'; $('#formula-dependencies').textContent = field.expressionDependencies?.length ? `Dependencies: ${field.expressionDependencies.join(', ')}` : '';
-  $('#field-details').classList.remove('hidden');
+  $('#field-identity').classList.remove('hidden');
 }
 async function runUsageScan() {
   if (!state.selectedObject || !state.selectedField) return;
   const button = $('#run-scan');
   try {
     clearError(); button.disabled = true; button.innerHTML = '<span class="spin">◌</span> Scanning';
-    $('#usage-results').classList.remove('hidden'); $('#usage-status').className = 'pill running'; $('#usage-status').textContent = '◌ Scanning';
+    $('#usage-results').classList.remove('hidden'); $('#usage-panel').open = true; $('#usage-status').className = 'pill running'; $('#usage-status').textContent = '◌ Scanning';
     const result = await platformRequest('/api/platform/usage-scan', { objectName: state.selectedObject.name, fieldName: state.selectedField.name });
     renderUsage(result); $('#usage-status').className = 'pill success'; $('#usage-status').textContent = '✓ Complete';
   } catch (error) { $('#usage-status').className = 'pill failed'; $('#usage-status').textContent = '⚠ Failed'; showError(error); }
   finally { button.disabled = false; button.innerHTML = 'Find usage'; }
 }
+function usageSection(title, count, emptyText, body, open = false) {
+  if (!count) return `<div class="usage-section empty"><span class="section-title">${escapeHtml(title)}</span><span class="section-note">${escapeHtml(emptyText)}</span></div>`;
+  return `<details class="usage-section"${open ? ' open' : ''}><summary><span class="section-title">${escapeHtml(title)}</span><span class="section-count">${count}</span></summary>${body}</details>`;
+}
+function table(headers, rows) {
+  return `<table class="usage-table"><thead><tr>${headers.map((text) => `<th>${escapeHtml(text)}</th>`).join('')}</tr></thead><tbody>${rows.map((cells) => `<tr>${cells.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
 function renderUsage(result) {
   const workflows = result.workflows ?? [];
   const total = result.formulaDependencies.length + result.serviceHooks.length + workflows.length;
-  $('#usage-total').textContent = total; $('#usage-summary').textContent = `${result.field.label} - ${result.field.fieldName} - ${result.field.dataType}`;
-  $('#formula-count').textContent = result.formulaDependencies.length; $('#hook-count').textContent = result.serviceHooks.length; $('#workflow-count').textContent = workflows.length;
-  $('#coverage-grid').innerHTML = result.coverage.collectors.map((item) => { const ok = item.status === 'complete'; return `<div class="collector ${ok ? 'complete' : 'failed'}"><div class="collector-status">${ok ? '✓' : '⚠'}</div><div><strong>${escapeHtml(item.label)}</strong><small>${ok ? '' : `${escapeHtml(item.status)} · `}${item.matches} match${item.matches === 1 ? '' : 'es'}</small></div></div>`; }).join('') + `<div class="collector complete"><div class="collector-status">✓</div><div><strong>Tenant coverage</strong><small>${result.coverage.fieldsScanned} fields · ${result.coverage.serviceHooksScanned} hooks · ${result.coverage.workflowsScanned ?? 0} workflows</small></div></div>`;
-  $('#scan-limitations').innerHTML = result.limitations.map((text) => `<div class="warning-note">⚠ <span>${escapeHtml(text)}</span></div>`).join('');
-  $('#formula-results').innerHTML = result.formulaDependencies.length ? result.formulaDependencies.map((item) => `<article class="reference-card"><div class="reference-icon">ƒ</div><div class="reference-body"><div class="reference-topline"><div><span class="reference-type">${item.direction === 'depends-on' ? 'SELECTED FORMULA DEPENDS ON' : 'USED BY FORMULA'}</span><h3>${referenceTitle(item.fieldLabel || item.fieldName, item.viewUrl)} <code>${escapeHtml(item.objectName)}.${escapeHtml(item.fieldName)}</code></h3></div><div class="tags"><span class="confidence exact">Exact</span></div></div><p>${escapeHtml(item.expression || 'Dependency reported by Platform metadata')}</p><div class="reference-meta"><span>${escapeHtml(item.dataType || '')}</span><span>${escapeHtml(item.source)}</span>${referenceIdMeta(item)}${item.dependencies?.length ? `<span>${escapeHtml(item.dependencies.join(', '))}</span>` : ''}</div></div></article>`).join('') : emptyResult('No formula dependencies found');
-  $('#workflow-results').innerHTML = workflows.length ? workflows.map((item) => `<article class="reference-card"><div class="reference-icon">⇄</div><div class="reference-body"><div class="reference-topline"><div><span class="reference-type">WORKFLOW · ${escapeHtml(item.usage)}</span><h3>${referenceTitle(item.workflowName, item.viewUrl)} <code>${escapeHtml(item.activityName)} › ${escapeHtml(item.property)}</code></h3></div><div class="tags"><span class="confidence ${item.confidence === 'Exact' ? 'exact' : 'probable'}">${escapeHtml(item.confidence)}</span><span class="state ${item.published ? 'active' : ''}">${item.published ? 'Published' : 'Draft'}</span></div></div><p><code>${escapeHtml(item.snippet)}</code></p><div class="reference-meta"><span>${escapeHtml([item.workflowType, item.triggerType].filter(Boolean).join(' · '))}</span>${item.objectName ? `<span>${escapeHtml(item.objectName)}</span>` : ''}<span>${escapeHtml(item.activityType)} (${escapeHtml(item.syntax)})</span>${item.version !== null && item.version !== undefined ? `<span>v${escapeHtml(item.version)}</span>` : ''}${referenceIdMeta(item)}</div></div></article>`).join('') : emptyResult('No workflow references found');
-  $('#hook-results').innerHTML = result.serviceHooks.length ? result.serviceHooks.map((item) => `<article class="reference-card"><div class="reference-icon">⚡</div><div class="reference-body"><div class="reference-topline"><div><span class="reference-type">SERVICE HOOK · CONDITION</span><h3>${referenceTitle(item.name, item.viewUrl)}</h3></div><div class="tags"><span class="confidence exact">Exact</span><span class="state ${item.active ? 'active' : ''}">${item.active ? 'Active' : 'Inactive'}</span></div></div><p><code>${escapeHtml(item.condition)}</code></p><div class="reference-meta"><span>${escapeHtml(item.eventTypes.join(', ') || item.ruleType)}</span>${referenceIdMeta(item)}${item.projectName ? `<span>${escapeHtml(item.projectName)}${item.className ? ` / ${escapeHtml(item.className)}` : ''}${item.methodName ? ` / ${escapeHtml(item.methodName)}` : ''}</span>` : ''}</div></div></article>`).join('') : emptyResult('No Service Hook condition references found');
+  $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
+  const coverage = [
+    ...result.coverage.collectors.map((item) => `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
+    `Scanned: ${result.coverage.fieldsScanned} fields, ${result.coverage.serviceHooksScanned} Service Hooks, ${result.coverage.workflowsScanned ?? 0} workflows`
+  ];
+  $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
+  $('#limitations-section').innerHTML = usageSection('Limitations', result.limitations.length, 'None', `<ul class="plain-list">${result.limitations.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
+  $('#formula-section').innerHTML = usageSection('Formula dependencies', result.formulaDependencies.length, 'No formula dependencies found',
+    table(['Object', 'Field name', 'Formula'], result.formulaDependencies.map((item) => [
+      escapeHtml(item.objectName),
+      `${referenceTitle(item.fieldName, item.viewUrl)}${item.direction === 'depends-on' ? ' <span class="muted">(selected field\'s own formula)</span>' : ''}`,
+      item.expression ? `<code>${escapeHtml(item.expression)}</code>` : '<span class="muted">Reported by dependency metadata</span>'
+    ])));
+  $('#hook-section').innerHTML = usageSection('Service Hook conditions', result.serviceHooks.length, 'No Service Hook condition references found',
+    table(['Service Hook', 'Condition', 'Status'], result.serviceHooks.map((item) => [
+      referenceTitle(item.name, item.viewUrl), `<code>${escapeHtml(item.condition)}</code>`, item.active ? 'Active' : 'Inactive'
+    ])));
+  $('#workflow-section').innerHTML = usageSection('Workflows', workflows.length, 'No workflow references found',
+    table(['Workflow name', 'Type'], workflows.map((item) => [
+      referenceTitle(item.workflowName, item.viewUrl), escapeHtml(item.usage)
+    ])));
 }
 function safeHref(value) { try { const url = new URL(value); return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null; } catch { return null; } }
 function referenceTitle(text, viewUrl) { const href = viewUrl && safeHref(viewUrl); return href ? `<a class="reference-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="Open in Conga Platform">${escapeHtml(text)} <span aria-hidden="true">↗</span></a>` : escapeHtml(text); }
-function referenceIdMeta(item) { return item.recordId ? `<span>ID <code>${escapeHtml(item.recordId)}</code></span>` : ''; }
 function emptyResult(text) { return `<div class="empty"><b>⌕</b><strong>${escapeHtml(text)}</strong><span>The collector completed successfully.</span></div>`; }
 function setMetadataStatus(kind, text) { $('#metadata-status').className = `pill ${kind}`; $('#metadata-status').textContent = text; }
 function disconnect() {
   if (state.connection) { state.connection.bearerToken = ''; state.connection.userId = ''; state.connection.platformUrl = ''; }
   state.connection = null; state.selectedObject = null; state.selectedField = null; state.objectResults = []; state.fieldResults = [];
   $('#bearer-token').value = ''; $('#user-id').value = ''; $('#object-search').value = ''; $('#field-search').value = ''; $('#object-search').disabled = true; $('#field-search').disabled = true; $('#run-scan').disabled = true;
-  closeOptions('object'); closeOptions('field'); $('#tenant-chip').classList.add('hidden'); $('#disconnect').classList.add('hidden'); $('#field-identity').classList.add('hidden'); $('#field-details').classList.add('hidden'); $('#usage-results').classList.add('hidden'); $('#side-session').textContent = 'Not connected';
+  closeOptions('object'); closeOptions('field'); $('#tenant-chip').classList.add('hidden'); $('#disconnect').classList.add('hidden'); $('#field-identity').classList.add('hidden'); $('#usage-results').classList.add('hidden'); $('#side-session').textContent = 'Not connected';
   $('#object-count').textContent = '—'; $('#field-count').textContent = '—'; $('#platform-value').textContent = '—'; $('#storage-value').textContent = 'None'; $('#metadata-caption').textContent = 'Connect to load live Conga Platform schema metadata.'; $('#object-search-status').textContent = ''; $('#field-search-status').textContent = ''; setMetadataStatus('neutral', '● Disconnected'); $('#connect-dialog').classList.remove('hidden');
 }
 function toggleTokenVisibility() { const input = $('#bearer-token'); const showing = input.type === 'text'; input.type = showing ? 'password' : 'text'; $('#toggle-token').textContent = showing ? 'Show' : 'Hide'; }

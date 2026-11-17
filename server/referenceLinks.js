@@ -8,7 +8,7 @@ export function referenceLinkTemplates(env = process.env) {
   return {
     serviceHook: clean(env.CONGA_SERVICE_HOOK_URL_TEMPLATE),
     field: clean(env.CONGA_FIELD_URL_TEMPLATE),
-    workflow: clean(env.CONGA_WORKFLOW_URL_TEMPLATE)
+    workflow: clean(env.CONGA_WORKFLOW_URL_TEMPLATE) ?? '{platformUrl}/workflow/{id}/'
   };
 }
 

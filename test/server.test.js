@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
 import { createAppServer } from '../server/index.js';
 import { normalizePlatformUrl } from '../server/platformUrl.js';
-import { buildReferenceUrl } from '../server/referenceLinks.js';
+import { buildReferenceUrl, referenceLinkTemplates } from '../server/referenceLinks.js';
 import { findFieldInWorkflow } from '../server/workflowScanner.js';
 
 let upstream; let app; let upstreamUrl; let baseUrl;
@@ -217,4 +217,13 @@ test('usage scan pages all workflows, reports matches and tolerates an unreadabl
   assert.equal(result.workflows[0].viewUrl, `${upstreamUrl}/admin/workflows/wf-201`);
   assert.equal(result.coverage.collectors.find((item) => item.key === 'workflows').status, 'partial');
   assert.ok(result.limitations.some((text) => /1 workflow definition\(s\) could not be read/.test(text)));
+});
+
+test('workflow links default to the Platform workflow page and the field section is gone', async () => {
+  const templates = referenceLinkTemplates({});
+  assert.equal(buildReferenceUrl(templates.workflow, { platformUrl: 'https://preview-rls09.congacloud.com', id: 'b67e291c-032a-4b50-ae35-b4c1b3b436e2' }), 'https://preview-rls09.congacloud.com/workflow/b67e291c-032a-4b50-ae35-b4c1b3b436e2/');
+  assert.equal(templates.field, null);
+  const html = await (await fetch(baseUrl)).text();
+  assert.doesNotMatch(html, /id="field-details"/);
+  assert.match(html, /<details id="usage-panel"/);
 });

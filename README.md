@@ -88,7 +88,7 @@ Usage-scan results show the record **ID** returned by the Platform API and, when
 ```bash
 CONGA_SERVICE_HOOK_URL_TEMPLATE={platformUrl}/path/to/service-hooks/{id}
 CONGA_FIELD_URL_TEMPLATE={platformUrl}/path/to/objects/{objectName}/fields/{fieldName}
-CONGA_WORKFLOW_URL_TEMPLATE={platformUrl}/path/to/workflows/{id}
+CONGA_WORKFLOW_URL_TEMPLATE={platformUrl}/workflow/{id}/   # default when unset
 ```
 
 Placeholders: `{platformUrl}` (the connected tenant origin), `{id}`, `{objectName}`, `{fieldName}`, `{name}`. Values are URL-encoded. If a placeholder has no value for a result (for example the API returned no `Id`), that result is shown as plain text instead of a broken link. Copy the address of a real record page in your tenant to get the exact path.
