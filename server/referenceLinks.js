@@ -3,7 +3,9 @@
 // except {platformUrl}, which is the already-validated tenant origin.
 const placeholder = /\{(platformUrl|id|objectName|fieldName|name)\}/g;
 
-export function referenceLinkTemplates(env = process.env) {
+// Browser-safe: falls back to an empty environment when `process` does not exist (Chrome extension).
+export function referenceLinkTemplates(env = globalThis.process?.env ?? {}) {
+  env = env ?? globalThis.process?.env ?? {};
   const clean = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
   return {
     field: clean(env.CONGA_FIELD_URL_TEMPLATE),

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Conga Field Usage Analyzer",
+  "description": "Find where a Conga Platform field is used in formulas, workflows and custom code.",
+  "minimum_chrome_version": "120",
+  "action": { "default_title": "Conga Field Usage Analyzer" },
+  "background": { "service_worker": "background.js" },
+  "host_permissions": [
+    "https://*.congacloud.com/*",
+    "https://*.congacloud.eu/*",
+    "https://*.congacloud.au/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://*.congacloud.com https://*.congacloud.eu https://*.congacloud.au; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+}

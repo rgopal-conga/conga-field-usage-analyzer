@@ -241,7 +241,7 @@ test('source matcher classifies indexer, dictionary, setter and property access'
   assert.ok(matches.every((item) => item.className === 'A' && item.methodName === 'M'));
 });
 
-test('zip reader extracts text entries and skips binaries', () => {
-  const entries = readZipTextEntries(makeZip({ 'a/One.cs': 'class One {}', 'a/bin/x.dll': 'MZ\u0000' }));
+test('zip reader extracts text entries and skips binaries', async () => {
+  const entries = await readZipTextEntries(makeZip({ 'a/One.cs': 'class One {}', 'a/bin/x.dll': 'MZ\u0000' }));
   assert.deepEqual(entries, [{ path: 'a/One.cs', text: 'class One {}' }]);
 });

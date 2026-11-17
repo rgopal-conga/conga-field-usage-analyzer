@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0B004A"><meta name="description" content="Find where Conga Platform fields are used across a tenant."><title>Conga Field Usage Analyzer</title><link rel="stylesheet" href="/styles.css"></head>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0B004A"><meta name="description" content="Find where Conga Platform fields are used across a tenant."><title>Conga Field Usage Analyzer</title><link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="stylesheet" href="/styles.css"></head>
 <body>
 <div class="app-shell">
   <aside class="sidebar">
     <div class="brand"><div class="brand-mark">C</div><div><strong>CONGA</strong><span>FIELD USAGE</span></div></div>
-    <div class="sidebar-bottom"><div class="security"><b>✓</b><div><strong>Standalone mode</strong><span>Server-side credentials</span></div></div><div class="user"><div class="avatar">API</div><div><strong>Platform connection</strong><span id="side-session">Not connected</span></div></div></div>
+    <div class="sidebar-bottom"><div class="security"><b>✓</b><div><strong id="mode-title">Standalone mode</strong><span id="mode-detail">Server-side credentials</span></div></div><div class="user"><div class="avatar">API</div><div><strong>Platform connection</strong><span id="side-session">Not connected</span></div></div></div>
   </aside>
   <main>
     <header class="topbar"><div><div class="breadcrumb">CONGA / FIELD USAGE ANALYZER</div><h1>Where is this field used?</h1></div><div class="top-actions"><div id="tenant-chip" class="tenant-chip hidden"><span class="online-dot"></span><strong id="tenant-name"></strong><small id="tenant-url"></small></div><button id="feedback" type="button" class="link-button">Feedback</button><button id="disconnect" class="ghost hidden">↪ Disconnect</button></div></header>
@@ -36,11 +36,11 @@
   </main>
 </div>
 
-<div id="connect-dialog" class="dialog-backdrop hidden"><section class="dialog auth-dialog"><div class="dialog-mark">✓</div><div class="eyebrow">STATELESS PLATFORM CONNECTION</div><h2>Connect to a Platform URL</h2><p>Enter your Conga Platform URL and a current bearer token. The server validates both and does not create a session, cookie, file, cache entry, or database record.</p>
+<div id="connect-dialog" class="dialog-backdrop hidden"><section class="dialog auth-dialog"><div class="dialog-mark">✓</div><div class="eyebrow">STATELESS PLATFORM CONNECTION</div><h2>Connect to a Platform URL</h2><p id="connect-copy">Enter your Conga Platform URL and a current bearer token. The server validates both and does not create a session, cookie, file, cache entry, or database record.</p>
   <label><span class="field-label">PLATFORM URL</span><input id="platform-url" class="text-input" type="url" autocomplete="off" spellcheck="false"><small class="input-help">HTTPS Conga API origin only. Paths, query strings, fragments, credentials, IP addresses, localhost, and nonstandard ports are rejected.</small></label>
   <label><span class="field-label">BEARER TOKEN</span><div class="secret-input"><input id="bearer-token" class="text-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste token with or without the Bearer prefix"><button id="toggle-token" type="button" class="secret-toggle" aria-label="Show bearer token">Show</button></div><small class="input-help">Held only in this page's runtime memory while connected; reload or disconnect clears it. It is never placed in a cookie, localStorage, sessionStorage, IndexedDB, server session, file, cache, or database.</small></label>
   <button id="connect" class="primary wide">✓ Validate and load metadata</button>
-  <div class="trust-note">ⓘ Transient memory is required to execute requests, but nothing is persisted at rest. Use HTTPS when this internal tool is deployed.</div>
+  <div id="trust-copy" class="trust-note">ⓘ Transient memory is required to execute requests, but nothing is persisted at rest. Use HTTPS when this internal tool is deployed.</div>
 </section></div>
 <div id="feedback-dialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="feedback-title"><section class="dialog feedback-dialog"><h2 id="feedback-title">Feedback</h2><p>Contact <a href="mailto:rgopal@conga.com">rgopal@conga.com</a> for any issue or feedback.</p><button id="feedback-close" type="button" class="primary wide">Close</button></section></div>
 <script type="module" src="/app.js"></script></body></html>

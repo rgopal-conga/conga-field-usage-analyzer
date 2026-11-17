@@ -1,4 +1,25 @@
-# Stateless standalone architecture
+# Stateless architecture — standalone site and Chrome extension
+
+The same UI (`public/`) and the same API router and scanners (`server/api.js` and the modules it imports) run in two hosts:
+
+```text
+Standalone site                                Chrome extension
+  public/app.js  request()                       public/app.js  request()
+        │ HTTP POST, no-store                           │ in-page call
+        ▼                                               ▼
+  server/index.js (Node http, static files)      core/api.js  (copy of server/api.js)
+        │ api.handle()                                  │
+        └──────────────► server/api.js ◄────────────────┘
+                          scanners, Conga client, URL allowlist
+                                 │ bearer token, redirects disabled
+                                 ▼
+                           Conga Platform
+```
+
+In the extension, `request()` imports `core/api.js` and `extension-config.js` (generated at build time from `.env`) and calls `api.handle()` directly; the manifest's host permissions let the extension page call Conga Platform without CORS. Only `server/index.js` may use Node APIs. The build fails if any other shared module does.
+
+The standalone view below shows the request flow; in the extension the "backend" box runs inside the browser tab.
+
 
 ```text
 Browser page runtime memory only

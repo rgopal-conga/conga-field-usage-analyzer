@@ -8,11 +8,46 @@ const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[char]));
 const debounce = (fn, wait = 250) => { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), wait); }; };
 
+// One UI, two runtimes. Every API call goes through request():
+//   - standalone site: HTTP to the local Node server (server/index.js);
+//   - Chrome extension: the same API router (server/api.js, copied to core/api.js by
+//     `npm run build:extension`) runs in this page and calls Conga Platform directly.
+// Never call the /api/ routes any other way, or the extension build breaks.
+const isExtension = globalThis.location?.protocol === 'chrome-extension:';
+let localApi = null;
+async function extensionApi() {
+  if (!localApi) {
+    const [{ createApi }, { default: config }] = await Promise.all([import('./core/api.js'), import('./extension-config.js')]);
+    localApi = createApi({
+      runtime: 'extension',
+      env: {},
+      platformUrlOptions: { allowedHosts: config.allowedHosts ?? [] },
+      linkTemplates: config.linkTemplates
+    });
+  }
+  return localApi;
+}
 async function request(path, options = {}) {
+  if (isExtension) {
+    const api = await extensionApi();
+    const url = new URL(path, 'https://extension.invalid');
+    const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+    const result = await api.handle({ method: options.method ?? 'GET', pathname: url.pathname, body });
+    if (result.status < 200 || result.status >= 300) throw new Error(result.body?.error ?? `Request failed (${result.status})`);
+    return result.body;
+  }
   const response = await fetch(path, { ...options, cache: 'no-store', credentials: 'omit', headers: { 'Content-Type': 'application/json', ...options.headers } });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error ?? `Request failed (${response.status})`);
   return payload;
+}
+function applyRuntimeLabels() {
+  if (!isExtension) return;
+  document.body.classList.add('runtime-extension');
+  $('#mode-title').textContent = 'Extension mode';
+  $('#mode-detail').textContent = 'Runs in your browser';
+  $('#connect-copy').textContent = 'Enter your Conga Platform URL and a current bearer token. The extension validates both directly with Conga Platform from this browser tab. Nothing passes through another server, and no session, cookie, file, cache entry, or extension storage is created.';
+  $('#trust-copy').textContent = 'ⓘ Transient memory is required to execute requests, but nothing is persisted at rest. Closing or reloading this tab clears the connection.';
 }
 function showError(error) { $('#error span').textContent = error.message ?? String(error); $('#error').classList.remove('hidden'); }
 function clearError() { $('#error').classList.add('hidden'); }
@@ -31,6 +66,7 @@ function formatField(item) { return `${item.label} - ${item.name} - ${item.type}
 
 async function initialize() {
   try {
+    applyRuntimeLabels();
     state.config = await request('/api/config');
     $('#platform-url').value = '';
     $('#connect-dialog').classList.remove('hidden');

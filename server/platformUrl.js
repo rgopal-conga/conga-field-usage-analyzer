@@ -1,5 +1,8 @@
 import { CongaApiError } from './congaClient.js';
 
+// Browser-safe: in the Chrome extension there is no `process`, so settings arrive through `options`.
+const runtimeEnv = () => globalThis.process?.env ?? {};
+
 const officialExactHosts = new Set([
   'rls.congacloud.com',
   'rls.congacloud.eu',
@@ -12,7 +15,7 @@ const officialHostPatterns = [
   /^preview-rls\d+\.congacloud\.com$/
 ];
 
-export function configuredAllowedHosts(env = process.env) {
+export function configuredAllowedHosts(env = runtimeEnv()) {
   return (env.CONGA_ALLOWED_PLATFORM_HOSTS ?? '')
     .split(',')
     .map((host) => host.trim().toLowerCase().replace(/\.$/, ''))
@@ -33,7 +36,7 @@ export function normalizePlatformUrl(value, options = {}) {
   catch { throw new CongaApiError('Platform URL is invalid', 400); }
 
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
-  const additionalHosts = [...configuredAllowedHosts(), ...(options.allowedHosts ?? [])]
+  const additionalHosts = [...configuredAllowedHosts(options.env ?? runtimeEnv()), ...(options.allowedHosts ?? [])]
     .map((host) => host.toLowerCase().replace(/\.$/, ''));
   const allowInsecureForTests = options.allowInsecureForTests === true && additionalHosts.includes(hostname);
   if (url.protocol !== 'https:' && !(allowInsecureForTests && url.protocol === 'http:')) {
@@ -54,13 +57,13 @@ export function normalizePlatformUrl(value, options = {}) {
   return `${url.protocol}//${hostname}${port}`;
 }
 
-export function publicUrlPolicy(env = process.env) {
+export function publicUrlPolicy(env = runtimeEnv(), options = {}) {
   return {
     suggestedUrls: [
       'https://rls.congacloud.com',
       'https://rls.congacloud.eu',
       'https://rls.congacloud.au'
     ],
-    additionalHostsConfigured: configuredAllowedHosts(env).length
+    additionalHostsConfigured: configuredAllowedHosts(env ?? runtimeEnv()).length + (options.allowedHosts?.length ?? 0)
   };
 }

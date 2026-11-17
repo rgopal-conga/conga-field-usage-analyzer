@@ -223,10 +223,10 @@ export class CongaClient {
     headers.Authorization = ['Bearer', this.accessToken].join(' ');
     if (this.userId) headers['user-id'] = this.userId;
     const response = await this.fetchImpl(url, { method: 'GET', headers, redirect: 'error', cache: 'no-store' });
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = new Uint8Array(await response.arrayBuffer());
     if (!response.ok) {
       let payload = {};
-      try { payload = JSON.parse(bytes.toString('utf8')); } catch { /* not JSON */ }
+      try { payload = JSON.parse(new TextDecoder().decode(bytes)); } catch { /* not JSON */ }
       const status = response.status === 401 || response.status === 403 ? response.status : 502;
       throw new CongaApiError(upstreamMessage(payload, `Conga Platform request failed (${response.status})`), status);
     }

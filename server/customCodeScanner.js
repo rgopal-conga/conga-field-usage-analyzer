@@ -276,7 +276,7 @@ async function projectDocuments(client, summary) {
     .filter((doc) => typeof doc.text === 'string');
   if (!files.length) {
     const zip = await client.downloadCustomCodeProject(name);
-    files = readZipTextEntries(zip, (path) => !BINARY_EXTENSIONS.test(path) && !/(^|\/)(bin|obj)\//i.test(path));
+    files = await readZipTextEntries(zip, (path) => !BINARY_EXTENSIONS.test(path) && !/(^|\/)(bin|obj)\//i.test(path));
     source = 'Project download';
   }
   return { name, project, files, source };

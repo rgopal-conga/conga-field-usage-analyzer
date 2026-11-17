@@ -1,11 +1,11 @@
+// Standalone (local Node.js) host. Only this file may use Node APIs; the API itself
+// lives in api.js so the Chrome extension runs exactly the same code in the browser.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CongaApiError, CongaClient, normalizeBearerToken } from './congaClient.js';
-import { normalizePlatformUrl, publicUrlPolicy } from './platformUrl.js';
-import { scanFieldUsage } from './usageScanner.js';
-import { referenceLinkTemplates } from './referenceLinks.js';
+import { CongaApiError } from './congaClient.js';
+import { createApi } from './api.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = normalize(join(here, '..', 'public'));
@@ -30,44 +30,17 @@ async function serveStatic(pathname, response) {
   try { const content = await readFile(target); response.writeHead(200, securityHeaders(mime[extname(target)] ?? 'application/octet-stream')); response.end(content); }
   catch { send(response, 404, { error: 'Not found' }); }
 }
-function clientFromInput(input, fetchImpl, platformUrlOptions) {
-  const platformUrl = normalizePlatformUrl(input.platformUrl, platformUrlOptions);
-  const accessToken = normalizeBearerToken(input.bearerToken);
-  const userId = typeof input.userId === 'string' && input.userId.trim() ? input.userId.trim() : undefined;
-  if (userId && !/^[A-Za-z0-9_-]{1,200}$/.test(userId)) throw new CongaApiError('Platform user ID is invalid', 400);
-  return { client: new CongaClient({ platformUrl, accessToken, userId }, fetchImpl), platformUrl, hasUserContext: Boolean(userId) };
-}
 
-export function createAppServer({ fetchImpl = fetch, platformUrlOptions = {}, linkTemplates = referenceLinkTemplates() } = {}) {
+export function createAppServer({ fetchImpl = fetch, platformUrlOptions = {}, linkTemplates, env = process.env } = {}) {
+  const api = createApi({ fetchImpl, platformUrlOptions, linkTemplates, env, runtime: 'standalone' });
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     try {
-      if (url.pathname === '/health' && request.method === 'GET') return send(response, 200, { status: 'ok', storage: 'stateless' });
-      if (url.pathname === '/api/config' && request.method === 'GET') return send(response, 200, { authMode: 'bearer-token', storage: 'none', urlPolicy: publicUrlPolicy(), referenceLinks: { field: Boolean(linkTemplates.field), workflow: Boolean(linkTemplates.workflow), customCode: Boolean(linkTemplates.customCode) } });
-      if (url.pathname === '/api/platform/validate' && request.method === 'POST') {
-        const input = await readJson(request);
-        const connection = clientFromInput(input, fetchImpl, platformUrlOptions);
-        await connection.client.validateConnection();
-        // The org name is display-only: a failing org-info call must not block the connection.
-        const organizationName = await connection.client.getOrganizationName().catch(() => null);
-        return send(response, 200, { valid: true, platformUrl: connection.platformUrl, hasUserContext: connection.hasUserContext, organizationName });
+      if (api.isApiPath(url.pathname)) {
+        const body = request.method === 'POST' ? await readJson(request) : undefined;
+        const result = await api.handle({ method: request.method, pathname: url.pathname, body });
+        return send(response, result.status, result.body);
       }
-      if (url.pathname === '/api/platform/objects/search' && request.method === 'POST') {
-        const input = await readJson(request);
-        const { client } = clientFromInput(input, fetchImpl, platformUrlOptions);
-        return send(response, 200, await client.searchObjects(String(input.query ?? ''), input.limit));
-      }
-      if (url.pathname === '/api/platform/fields/search' && request.method === 'POST') {
-        const input = await readJson(request);
-        const { client } = clientFromInput(input, fetchImpl, platformUrlOptions);
-        return send(response, 200, await client.searchFields(input.objectName, String(input.query ?? ''), input.limit));
-      }
-      if (url.pathname === '/api/platform/usage-scan' && request.method === 'POST') {
-        const input = await readJson(request);
-        const { client, platformUrl } = clientFromInput(input, fetchImpl, platformUrlOptions);
-        return send(response, 200, await scanFieldUsage(client, input.objectName, input.fieldName, { platformUrl, linkTemplates }));
-      }
-      if (url.pathname.startsWith('/api/')) return send(response, 404, { error: 'API route not found' });
       return serveStatic(url.pathname, response);
     } catch (error) {
       console.error(error.name, error.message);
