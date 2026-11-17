@@ -6,7 +6,6 @@ const placeholder = /\{(platformUrl|id|objectName|fieldName|name)\}/g;
 export function referenceLinkTemplates(env = process.env) {
   const clean = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
   return {
-    serviceHook: clean(env.CONGA_SERVICE_HOOK_URL_TEMPLATE),
     field: clean(env.CONGA_FIELD_URL_TEMPLATE),
     workflow: clean(env.CONGA_WORKFLOW_URL_TEMPLATE) ?? '{platformUrl}/workflow/{id}/',
     customCode: clean(env.CONGA_CUSTOM_CODE_URL_TEMPLATE)

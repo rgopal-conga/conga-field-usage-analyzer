@@ -43,7 +43,7 @@ export function createAppServer({ fetchImpl = fetch, platformUrlOptions = {}, li
     const url = new URL(request.url ?? '/', 'http://localhost');
     try {
       if (url.pathname === '/health' && request.method === 'GET') return send(response, 200, { status: 'ok', storage: 'stateless' });
-      if (url.pathname === '/api/config' && request.method === 'GET') return send(response, 200, { authMode: 'bearer-token', storage: 'none', urlPolicy: publicUrlPolicy(), referenceLinks: { serviceHook: Boolean(linkTemplates.serviceHook), field: Boolean(linkTemplates.field), workflow: Boolean(linkTemplates.workflow), customCode: Boolean(linkTemplates.customCode) } });
+      if (url.pathname === '/api/config' && request.method === 'GET') return send(response, 200, { authMode: 'bearer-token', storage: 'none', urlPolicy: publicUrlPolicy(), referenceLinks: { field: Boolean(linkTemplates.field), workflow: Boolean(linkTemplates.workflow), customCode: Boolean(linkTemplates.customCode) } });
       if (url.pathname === '/api/platform/validate' && request.method === 'POST') {
         const input = await readJson(request);
         const connection = clientFromInput(input, fetchImpl, platformUrlOptions);
