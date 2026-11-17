@@ -119,11 +119,11 @@ function table(headers, rows) {
 function renderUsage(result) {
   const workflows = result.workflows ?? [];
   const customCode = result.customCode ?? [];
-  const total = result.formulaDependencies.length + result.serviceHooks.length + workflows.length + customCode.length;
+  const total = result.formulaDependencies.length + workflows.length + customCode.length;
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
     ...result.coverage.collectors.map((item) => `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.serviceHooksScanned} Service Hooks, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)`
+    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#limitations-section').innerHTML = usageSection('Limitations', result.limitations.length, 'None', `<ul class="plain-list">${result.limitations.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
@@ -132,10 +132,6 @@ function renderUsage(result) {
       escapeHtml(item.objectName),
       `${referenceTitle(item.fieldName, item.viewUrl)}${item.direction === 'depends-on' ? ' <span class="muted">(selected field\'s own formula)</span>' : ''}`,
       item.expression ? `<code>${escapeHtml(item.expression)}</code>` : `<code>${escapeHtml((item.dependencies ?? []).join(', '))}</code>`
-    ])));
-  $('#hook-section').innerHTML = usageSection('Service Hook conditions', result.serviceHooks.length, 'No Service Hook condition references found',
-    table(['Service Hook', 'Condition', 'Status'], result.serviceHooks.map((item) => [
-      referenceTitle(item.name, item.viewUrl), `<code>${escapeHtml(item.condition)}</code>`, item.active ? 'Active' : 'Inactive'
     ])));
   $('#workflow-section').innerHTML = usageSection('Workflows', workflows.length, 'No workflow references found',
     table(['Workflow name', 'Type'], workflows.map((item) => [

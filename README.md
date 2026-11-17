@@ -1,6 +1,6 @@
 # Conga Field Usage Analyzer — standalone internal web application
 
-Version 0.6 is a testable standalone build with searchable tenant metadata plus Formula Dependency, Service Hook condition, Workflow and Custom Code scans. It has no Chrome extension or Conga TS Inspector integration.
+Version 0.6 is a testable standalone build with searchable tenant metadata plus Formula Dependency, Workflow and Custom Code scans. It has no Chrome extension or Conga TS Inspector integration.
 
 ## Run
 
@@ -26,19 +26,13 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
 
 ## Usage scan
 
-**Find usage** runs four request-scoped collectors:
+**Find usage** runs three request-scoped collectors:
 
 1. **Formula dependencies**
    - Shows what the selected field depends on when it is a formula.
    - Finds formula fields in the selected object's full schema whose `ExpressionDependency` references the selected field.
    - Calls the Platform dependency-fields metadata endpoint and merges additional dependent-field results without duplicates.
-2. **Service Hook conditions**
-   - Pages through every accessible Service Hook rule.
-   - Filters to the selected object.
-   - Reports exact field-token references in configured hook conditions.
-   - Shows active state, events, project, class, and method when returned by Platform.
-
-3. **Workflow references**
+2. **Workflow references**
    - Pages through `POST /api/workflow/v1/query/WorkflowDefinition?IncludeTotalCount=true` (`IsLatest=true`, all workflow types).
    - Reads each definition from `GET /api/workflow/v1/workflow-definitions/{definitionId}/Latest`, five at a time.
    - Checks every activity property expression (Liquid, Literal, Json, …) plus variables and custom attributes:
@@ -48,11 +42,11 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
    - Usage is labelled Condition, Field update, Field mapping, Expression or Variable from the property name.
    - If the workflow API is unavailable, or a definition cannot be read, the collector reports `failed`/`partial` in limitations; the other collectors still return.
 
-4. **Custom code references**
+3. **Custom code references**
    - Lists every project with `GET /api/extensibility/v1/customcode`.
    - Reads each project's source from `GET /api/extensibility/v1/customcode/{name}` (`Documents[].SourceCode`), three at a time. If a project returns no documents, it falls back to `GET /api/extensibility/v1/customcode/{name}/download` and reads the `.cs`/text files from the ZIP in memory (`bin/` and `obj/` are skipped).
    - Works out how each class runs, shown as **Runs as**:
-     - Service Hook rules → `CustomCodeDetails.ProjectName/ClassName` (already read for the condition scan).
+     - Service Hook rules (`GET /api/extensibility/v1/servicehooks/rules`, all pages) → `CustomCodeDetails.ProjectName/ClassName`.
      - Callbacks → `GET /api/extensibility/v1/callbacks` → `CustomCodeMapping.ProjectName/ClassName`.
      - Custom APIs → `GET /api/extensibility/v1/customcode/api-resource` and `.../{resource}/uri-entries` → `CustomCodeName`, `FullyQualifiedClassName`, `MethodName`.
    - Analyses C# as text. Comments are ignored, and string literals and identifiers are matched as whole tokens:
@@ -61,9 +55,9 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
      - The field inside a longer string (criteria, select lists) → **Probable** when the object is in context, otherwise **Possible**.
      - `record.Field` style identifiers → **Probable**, reported only when the object is in context.
    - Labels each match **Write** (`rec["F"] = …`, `Set*("F", …)`, `{ "F", v }` in an insert/update dictionary, `obj.F = …`), **Read** (`rec["F"]`, `Get*("F")`, `obj.F`), **Query / criteria**, **Declaration** or **Reference**, with file, line, class and method.
-   - If callback or Custom API mappings cannot be read, matches are still reported and the limitation says "Runs as" may be incomplete. If the custom code API is unavailable, the collector reports `failed` and the other collectors still return.
+   - If Service Hook, callback or Custom API mappings cannot be read, matches are still reported and the limitation says "Runs as" may be incomplete. If the custom code API is unavailable, the collector reports `failed` and the other collectors still return.
 
-Object-level hooks whose condition does not reference the field are counted but not claimed as field usage. Their linked custom code is covered by the Custom code collector.
+Service Hooks have no section of their own: the code a hook runs is scanned under **Custom code**, and **Runs as** names the hook. A hook's configured condition text is not searched.
 
 ## No persistent storage
 
@@ -101,7 +95,6 @@ Wildcards are not supported.
 Usage-scan results show the record **ID** returned by the Platform API and, when a URL template is configured, link the result name to its page in the Conga admin UI (opens in a new tab). Set the templates in `.env` (loaded automatically on Node 20.12+) or the shell:
 
 ```bash
-CONGA_SERVICE_HOOK_URL_TEMPLATE={platformUrl}/path/to/service-hooks/{id}
 CONGA_FIELD_URL_TEMPLATE={platformUrl}/path/to/objects/{objectName}/fields/{fieldName}
 CONGA_WORKFLOW_URL_TEMPLATE={platformUrl}/workflow/{id}/   # default when unset
 CONGA_CUSTOM_CODE_URL_TEMPLATE={platformUrl}/path/to/custom-code/{name}   # {name} = project name
