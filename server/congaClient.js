@@ -41,12 +41,14 @@ export class CongaClient {
     this.fetchImpl = fetchImpl;
   }
 
-  async request(path, query = {}) {
+  async request(path, query = {}, { method = 'GET', body } = {}) {
     const url = new URL(path, `${this.platformUrl}/`);
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     const headers = { Accept: 'application/json', Authorization: `Bearer ${this.accessToken}` };
     if (this.userId) headers['user-id'] = this.userId;
-    const response = await this.fetchImpl(url, { headers, redirect: 'error', cache: 'no-store' });
+    const init = { method, headers, redirect: 'error', cache: 'no-store' };
+    if (body !== undefined) { headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(body); }
+    const response = await this.fetchImpl(url, init);
     const payload = await parseResponse(response);
     if (!response.ok) {
       const status = response.status === 401 || response.status === 403 ? response.status : 502;
@@ -149,6 +151,39 @@ export class CongaClient {
     }
     const payload = await this.request(`/api/metadata/v1/objects/${encodeURIComponent(objectName)}/fields/${encodeURIComponent(fieldName)}/dependency-fields`);
     return pick(payload, 'Data', 'data') ?? [];
+  }
+
+  async listWorkflowDefinitions() {
+    const all = [];
+    const limit = 200;
+    for (let page = 0; page < 100; page += 1) {
+      const payload = await this.request('/api/workflow/v1/query/WorkflowDefinition', { IncludeTotalCount: true }, {
+        method: 'POST',
+        body: {
+          ObjectName: 'WorkflowDefinition',
+          Criteria: 'IsLatest=true',
+          Skip: page * limit,
+          Limit: limit,
+          Select: ['Id', 'DefinitionId', 'Name', 'DisplayName', 'Version', 'TriggerType', 'IsPublished', 'IsLatest', 'ObjectName', 'WorkflowType', 'IsOOTB', 'ModifiedDate'],
+          Sort: { FieldName: 'Name', OrderBy: 'Ascending' }
+        }
+      });
+      const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data', 'Records', 'records', 'Items', 'items') ?? [];
+      if (!Array.isArray(data)) throw new CongaApiError('Unexpected workflow query response shape', 502);
+      all.push(...data);
+      const total = Array.isArray(payload) ? undefined : pick(payload, 'TotalCount', 'totalCount');
+      if (data.length < limit || (typeof total === 'number' && all.length >= total)) break;
+      if (page === 99) throw new CongaApiError('Workflow definitions exceeded the 100-page safety limit', 502);
+    }
+    return all;
+  }
+
+  async getWorkflowDefinition(definitionId) {
+    if (typeof definitionId !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(definitionId)) throw new CongaApiError('Workflow definition id is invalid', 400);
+    const payload = await this.request(`/api/workflow/v1/workflow-definitions/${encodeURIComponent(definitionId)}/Latest`);
+    const definition = pick(payload, 'Data', 'data') ?? payload;
+    if (!definition || typeof definition !== 'object' || Array.isArray(definition)) throw new CongaApiError('Unexpected workflow definition response shape', 502);
+    return definition;
   }
 
   async listServiceHooks() {

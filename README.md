@@ -38,6 +38,16 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
    - Reports exact field-token references in configured hook conditions.
    - Shows active state, events, project, class, and method when returned by Platform.
 
+3. **Workflow references**
+   - Pages through `POST /api/workflow/v1/query/WorkflowDefinition?IncludeTotalCount=true` (`IsLatest=true`, all workflow types).
+   - Reads each definition from `GET /api/workflow/v1/workflow-definitions/{definitionId}/Latest`, five at a time.
+   - Checks every activity property expression (Liquid, Literal, Json, …) plus variables and custom attributes:
+     - `Object.Field` anywhere → **Exact**.
+     - A Json `Key`/`FieldName` equal to the field, in a workflow on the selected object updating its context object → **Exact** (e.g. `FieldsToUpdate`).
+     - The bare field name as a whole word, in a workflow on the selected object → **Probable**.
+   - Usage is labelled Condition, Field update, Field mapping, Expression or Variable from the property name.
+   - If the workflow API is unavailable, or a definition cannot be read, the collector reports `failed`/`partial` in limitations; the other collectors still return.
+
 Object-level hooks whose condition does not reference the field are counted but not claimed as field usage. Their custom code is not analyzed in this build, and the UI states that limitation.
 
 ## No persistent storage
@@ -78,6 +88,7 @@ Usage-scan results show the record **ID** returned by the Platform API and, when
 ```bash
 CONGA_SERVICE_HOOK_URL_TEMPLATE={platformUrl}/path/to/service-hooks/{id}
 CONGA_FIELD_URL_TEMPLATE={platformUrl}/path/to/objects/{objectName}/fields/{fieldName}
+CONGA_WORKFLOW_URL_TEMPLATE={platformUrl}/path/to/workflows/{id}
 ```
 
 Placeholders: `{platformUrl}` (the connected tenant origin), `{id}`, `{objectName}`, `{fieldName}`, `{name}`. Values are URL-encoded. If a placeholder has no value for a result (for example the API returned no `Id`), that result is shown as plain text instead of a broken link. Copy the address of a real record page in your tenant to get the exact path.

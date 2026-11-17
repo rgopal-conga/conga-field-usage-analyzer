@@ -5,6 +5,7 @@ import { after, before, test } from 'node:test';
 import { createAppServer } from '../server/index.js';
 import { normalizePlatformUrl } from '../server/platformUrl.js';
 import { buildReferenceUrl } from '../server/referenceLinks.js';
+import { findFieldInWorkflow } from '../server/workflowScanner.js';
 
 let upstream; let app; let upstreamUrl; let baseUrl;
 const observed = { apiHeaders: [], requests: [] };
@@ -34,6 +35,18 @@ const hooks = Array.from({ length: 202 }, (_, index) => index < 200 ? ({
   CustomCodeDetails: { ProjectName: 'UsageProject', ClassName: 'OtherHandler', MethodName: 'Run' }
 }));
 
+const workflowSummaries = Array.from({ length: 203 }, (_, index) => ({ Id: `wf-${index}`, DefinitionId: `wf-${index}`, Name: `Workflow${index}`, DisplayName: `Workflow ${index}`, ObjectName: index === 201 ? 'Object250' : 'OtherObject', WorkflowType: 'Standalone', IsLatest: true }));
+function workflowDefinition(definitionId) {
+  const index = Number(definitionId.split('-')[1]);
+  const condition = index === 201 ? '( Object250.TargetField != "Done" )' : '( OtherObject.Status == "Open" )';
+  const updates = index === 201 ? '[{"Key":"TargetField","Value":"x"}]' : '[{"Key":"TargetField","Value":"x"}]';
+  return { definitionId, displayName: `Workflow ${index}`, objectName: index === 201 ? 'Object250' : 'OtherObject', workflowType: 'Standalone', triggerType: 'DataChange', isPublished: true, version: 1,
+    activities: [
+      { activityId: 'trigger', type: 'DataChangeWorkflowTriggerActivity', displayName: 'Start Workflow', properties: [{ name: 'WorkflowCondition', expressions: { Liquid: condition } }] },
+      { activityId: 'update', type: 'UpdateObjectsActivity', displayName: 'Update', properties: [{ name: 'UpdateType', expressions: { Literal: 'Context Object' } }, { name: 'FieldsToUpdate', expressions: { Json: updates } }] }
+    ] };
+}
+const workflowQueries = [];
 function json(response, status, payload) { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(payload)); }
 async function post(path, payload) { return fetch(`${baseUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
 function credentials(extra = {}) { return { platformUrl: upstreamUrl, bearerToken: 'valid-token', userId: '', ...extra }; }
@@ -53,6 +66,17 @@ before(async () => {
     }
     if (url.pathname === '/api/schema/v1/objects/Object250') return json(response, 200, { Success: true, Data: { Name: 'Object250', DisplayName: 'Late Object', FieldMetadata: fields } });
     if (url.pathname === '/api/metadata/v1/objects/Object250/fields/TargetField/dependency-fields') return json(response, 200, { Success: true, Data: [{ ObjectName: 'Object250', FieldName: 'DependentCrossField', DisplayName: 'Dependent Cross Field', DataType: 'Currency', Expression: 'TargetField + 1' }] });
+    if (url.pathname === '/api/workflow/v1/query/WorkflowDefinition' && request.method === 'POST') {
+      let raw = ''; for await (const chunk of request) raw += chunk;
+      const body = JSON.parse(raw); workflowQueries.push({ query: url.search, body });
+      const data = workflowSummaries.slice(body.Skip, body.Skip + body.Limit);
+      return json(response, 200, { Success: true, Data: data, TotalCount: workflowSummaries.length });
+    }
+    const workflowMatch = url.pathname.match(/^\/api\/workflow\/v1\/workflow-definitions\/([^/]+)\/Latest$/);
+    if (workflowMatch) {
+      if (workflowMatch[1] === 'wf-202') return json(response, 500, { Message: 'Definition unavailable' });
+      return json(response, 200, workflowDefinition(workflowMatch[1]));
+    }
     if (url.pathname === '/api/extensibility/v1/servicehooks/rules') {
       const page = Number(url.searchParams.get('pageNumber')); const pageSize = Number(url.searchParams.get('pageSize'));
       const start = (page - 1) * pageSize; const data = hooks.slice(start, start + pageSize);
@@ -62,7 +86,7 @@ before(async () => {
   });
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
   upstreamUrl = `http://127.0.0.1:${upstream.address().port}`;
-  app = createAppServer({ platformUrlOptions: { allowedHosts: ['127.0.0.1'], allowInsecureForTests: true, allowAnyPortForTests: true }, linkTemplates: { serviceHook: '{platformUrl}/admin/service-hooks/{id}', field: '{platformUrl}/admin/objects/{objectName}/fields/{id}' } });
+  app = createAppServer({ platformUrlOptions: { allowedHosts: ['127.0.0.1'], allowInsecureForTests: true, allowAnyPortForTests: true }, linkTemplates: { serviceHook: '{platformUrl}/admin/service-hooks/{id}', field: '{platformUrl}/admin/objects/{objectName}/fields/{id}', workflow: '{platformUrl}/admin/workflows/{id}' } });
   await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${app.address().port}`;
 });
@@ -104,7 +128,7 @@ test('usage scan returns formula dependencies and exact Service Hook condition m
   assert.ok(result.formulaDependencies.some((item) => item.fieldName === 'Field249' && item.direction === 'used-by'));
   assert.ok(result.formulaDependencies.some((item) => item.fieldName === 'DependentCrossField' && item.source === 'Dependency metadata'));
   assert.equal(result.serviceHooks.length, 1); assert.equal(result.serviceHooks[0].name, 'TargetFieldHook'); assert.equal(result.serviceHooks[0].condition, 'Object250.TargetField == true');
-  assert.equal(result.limitations.length, 1); assert.match(result.limitations[0], /custom code was not analyzed/);
+  assert.ok(result.limitations.some((text) => /custom code was not analyzed/.test(text)));
 });
 
 test('every operation remains stateless and requires credentials', async () => {
@@ -167,4 +191,30 @@ test('reference URLs encode values and skip links with missing or unsafe parts',
   assert.equal(buildReferenceUrl('{platformUrl}/hooks/{id}', { platformUrl: 'https://rls.congacloud.com', id: null }), null);
   assert.equal(buildReferenceUrl(null, { id: 'x' }), null);
   assert.equal(buildReferenceUrl('javascript:alert({id})', { id: '1' }), null);
+});
+
+test('workflow matcher finds the condition and the field update in a real definition', async () => {
+  const definition = JSON.parse(await readFile(new URL('./fixtures/workflow-proposal-test-3.json', import.meta.url), 'utf8'));
+  const matches = findFieldInWorkflow(definition, 'Proposal', 'ApprovalStatus');
+  assert.deepEqual(matches.map((item) => [item.activityName, item.property, item.usage, item.confidence]), [
+    ['Start Workflow', 'WorkflowCondition', 'Condition', 'Exact'],
+    ['Update context/related Object(s)', 'FieldsToUpdate', 'Field update', 'Exact']
+  ]);
+  assert.match(matches[0].snippet, /Proposal\.ApprovalStatus/);
+  assert.deepEqual(findFieldInWorkflow(definition, 'Proposal', 'Approval'), []);
+  assert.deepEqual(findFieldInWorkflow(definition, 'Agreement', 'ApprovalStatus'), []);
+});
+
+test('usage scan pages all workflows, reports matches and tolerates an unreadable definition', async () => {
+  const before = workflowQueries.length;
+  const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }));
+  const result = await response.json();
+  const queries = workflowQueries.slice(before);
+  assert.equal(queries.length, 2); assert.equal(queries[0].query, '?IncludeTotalCount=true');
+  assert.equal(queries[0].body.ObjectName, 'WorkflowDefinition'); assert.equal(queries[0].body.Criteria, 'IsLatest=true'); assert.equal(queries[1].body.Skip, 200);
+  assert.equal(result.coverage.workflowsScanned, 203);
+  assert.deepEqual(result.workflows.map((item) => [item.workflowName, item.usage]), [['Workflow 201', 'Condition'], ['Workflow 201', 'Field update']]);
+  assert.equal(result.workflows[0].viewUrl, `${upstreamUrl}/admin/workflows/wf-201`);
+  assert.equal(result.coverage.collectors.find((item) => item.key === 'workflows').status, 'partial');
+  assert.ok(result.limitations.some((text) => /1 workflow definition\(s\) could not be read/.test(text)));
 });

@@ -1,0 +1,201 @@
+{
+  "definitionId": "39e7d644-758a-47b2-a58b-ee3ec8f22ea7",
+  "versionId": "2ae8137e-0720-43a2-b8e4-f3d5caddf84c",
+  "tenantId": "",
+  "name": "Proposal Test 3",
+  "displayName": "Proposal Test 3",
+  "description": "",
+  "channel": "",
+  "version": 2,
+  "variables": "{}",
+  "customAttributes": "{}",
+  "isSingleton": false,
+  "persistenceBehavior": "Suspended",
+  "deleteCompletedInstances": false,
+  "isPublished": true,
+  "isLatest": true,
+  "tag": "",
+  "createdAt": "2024-08-07T16:34:44Z",
+  "activities": [
+    {
+      "activityId": "1baf3f6b-a1aa-40d7-8667-ed060439f847",
+      "type": "DataChangeWorkflowTriggerActivity",
+      "displayName": "Start Workflow",
+      "persistWorkflow": false,
+      "loadWorkflowContext": false,
+      "saveWorkflowContext": false,
+      "properties": [
+        {
+          "name": "WorkflowCondition",
+          "expressions": {
+            "Liquid": "( Proposal.ApprovalStatus!= (\"Approved\") )"
+          }
+        },
+        {
+          "name": "ActionType",
+          "expressions": {
+            "Json": "[\"Create\",\"Update\"]"
+          }
+        },
+        {
+          "name": "UpdateCondition",
+          "expressions": {
+            "Literal": "EveryTime"
+          }
+        }
+      ],
+      "propertyStorageProviders": {},
+      "isRootActivity": true
+    },
+    {
+      "activityId": "f8cc863e-1983-422b-ae6e-a729e0877978",
+      "type": "UpdateObjectsActivity",
+      "displayName": "Update context/related Object(s)",
+      "persistWorkflow": false,
+      "loadWorkflowContext": false,
+      "saveWorkflowContext": false,
+      "properties": [
+        {
+          "name": "UpdateType",
+          "expressions": {
+            "Literal": "Context Object"
+          }
+        },
+        {
+          "name": "RelatedObjectName",
+          "expressions": {}
+        },
+        {
+          "name": "FieldsToUpdate",
+          "expressions": {
+            "Json": "[{\"Key\":\"ApprovalStatus\",\"ResourceType\":\"String\",\"Value\":\"Notified\"}]"
+          }
+        },
+        {
+          "name": "UnRelatedObjectName",
+          "expressions": {}
+        },
+        {
+          "name": "Criteria",
+          "expressions": {}
+        },
+        {
+          "name": "UnRelatedFieldsToUpdate",
+          "expressions": {
+            "Liquid": "{\"\":\"\"}"
+          }
+        },
+        {
+          "name": "RecordCollectionVariableName",
+          "expressions": {}
+        },
+        {
+          "name": "EntryCriteria",
+          "expressions": {}
+        }
+      ],
+      "propertyStorageProviders": {},
+      "isRootActivity": false
+    },
+    {
+      "activityId": "dea11877-ed76-48a0-b998-e45cf4228952",
+      "type": "EmailActivity",
+      "displayName": "Send Email",
+      "persistWorkflow": false,
+      "loadWorkflowContext": false,
+      "saveWorkflowContext": false,
+      "properties": [
+        {
+          "name": "RecipientType",
+          "expressions": {
+            "Literal": "users"
+          }
+        },
+        {
+          "name": "ToAddresses",
+          "expressions": {
+            "Json": "[{\"key\":\"approver@example.com\",\"label\":\"Example Approver\"}]"
+          }
+        },
+        {
+          "name": "CCAddresses",
+          "expressions": {
+            "Json": "[]"
+          }
+        },
+        {
+          "name": "Field",
+          "expressions": {
+            "Json": "{}"
+          }
+        },
+        {
+          "name": "FromAddress",
+          "expressions": {
+            "Literal": "sender@example.com"
+          }
+        },
+        {
+          "name": "FromName",
+          "expressions": {
+            "Literal": "Sender"
+          }
+        },
+        {
+          "name": "Subject",
+          "expressions": {
+            "Literal": "Platform test"
+          }
+        },
+        {
+          "name": "BodyTextType",
+          "expressions": {
+            "Literal": "Plaintext"
+          }
+        },
+        {
+          "name": "Body",
+          "expressions": {
+            "Literal": "Error from platform internal Org"
+          }
+        },
+        {
+          "name": "FromNameV2",
+          "expressions": {
+            "Json": "{\"ResourceType\":\"String\",\"DataType\":\"String\",\"Value\":\"Sender\"}"
+          }
+        },
+        {
+          "name": "SubjectV2",
+          "expressions": {
+            "Json": "{\"ResourceType\":\"String\",\"DataType\":\"String\",\"Value\":\"Platform test\"}"
+          }
+        }
+      ],
+      "propertyStorageProviders": {},
+      "isRootActivity": false
+    }
+  ],
+  "connections": [
+    {
+      "sourceActivityId": "1baf3f6b-a1aa-40d7-8667-ed060439f847",
+      "targetActivityId": "f8cc863e-1983-422b-ae6e-a729e0877978",
+      "outcome": "Done"
+    },
+    {
+      "sourceActivityId": "f8cc863e-1983-422b-ae6e-a729e0877978",
+      "targetActivityId": "dea11877-ed76-48a0-b998-e45cf4228952",
+      "outcome": "Fault"
+    }
+  ],
+  "objectName": "Proposal",
+  "workflowType": "Standalone",
+  "isOOTB": false,
+  "createdBy": "Example Admin",
+  "triggerType": "DataChange",
+  "screens": {},
+  "activityResources": [],
+  "isGenerated": false,
+  "additionalMetadata": {},
+  "id": "2ae8137e-0720-43a2-b8e4-f3d5caddf84c"
+}

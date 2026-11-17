@@ -1,5 +1,6 @@
 import { CongaApiError } from './congaClient.js';
 import { buildReferenceUrl } from './referenceLinks.js';
+import { scanWorkflows } from './workflowScanner.js';
 
 function pick(object, ...names) {
   for (const name of names) if (object && object[name] !== undefined) return object[name];
@@ -61,10 +62,11 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
     throw new CongaApiError('Object or field name is invalid', 400);
   }
 
-  const [fields, dependencyData, hooks] = await Promise.all([
+  const [fields, dependencyData, hooks, workflowScan] = await Promise.all([
     client.getObjectFields(objectName),
     client.getFieldDependencies(objectName, fieldName),
-    client.listServiceHooks()
+    client.listServiceHooks(),
+    scanWorkflows(client, objectName, fieldName).catch((error) => ({ error }))
   ]);
   const selected = fields.find((field) => field.name === fieldName);
   if (!selected) throw new CongaApiError('Selected field was not found in the object schema', 404);
@@ -139,22 +141,35 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
     item.viewUrl = buildReferenceUrl(linkTemplates.serviceHook, { platformUrl, id: item.recordId, objectName: item.objectName, name: item.name });
   }
 
+  const workflowResults = workflowScan.error ? [] : workflowScan.results;
+  for (const item of workflowResults) {
+    item.viewUrl = buildReferenceUrl(linkTemplates.workflow, { platformUrl, id: item.recordId, objectName: item.objectName, name: item.workflowName });
+  }
+  const workflowStatus = workflowScan.error ? 'failed' : workflowScan.failures.length ? 'partial' : 'complete';
+  const limitations = [];
+  if (objectHooks.length > serviceHookResults.length) {
+    limitations.push(`${objectHooks.length - serviceHookResults.length} additional Service Hook(s) target this object but do not reference the field in their configured condition. Their custom code was not analyzed.`);
+  }
+  if (workflowScan.error) limitations.push(`Workflow scan failed: ${workflowScan.error.message}. Formula and Service Hook results are still complete.`);
+  else if (workflowScan.failures.length) limitations.push(`${workflowScan.failures.length} workflow definition(s) could not be read and were skipped: ${workflowScan.failures.slice(0, 5).join(', ')}${workflowScan.failures.length > 5 ? ', …' : ''}.`);
+
   return {
     field: { objectName, fieldName, label: selected.label, dataType: selected.type },
     formulaDependencies: formulaResults,
     serviceHooks: serviceHookResults,
+    workflows: workflowResults,
     coverage: {
       fieldsScanned: fields.length,
       serviceHooksScanned: hooks.length,
       objectScopedHooks: objectHooks.length,
       conditionMatches: serviceHookResults.length,
+      workflowsScanned: workflowScan.error ? 0 : workflowScan.workflowsScanned,
       collectors: [
         { key: 'formulaDependencies', label: 'Formula dependencies', status: 'complete', matches: formulaResults.length },
-        { key: 'serviceHooks', label: 'Service Hook conditions', status: 'complete', matches: serviceHookResults.length }
+        { key: 'serviceHooks', label: 'Service Hook conditions', status: 'complete', matches: serviceHookResults.length },
+        { key: 'workflows', label: 'Workflow references', status: workflowStatus, matches: workflowResults.length }
       ]
     },
-    limitations: objectHooks.length > serviceHookResults.length ? [
-      `${objectHooks.length - serviceHookResults.length} additional Service Hook(s) target this object but do not reference the field in their configured condition. Their custom code was not analyzed.`
-    ] : []
+    limitations
   };
 }

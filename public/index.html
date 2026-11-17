@@ -35,12 +35,13 @@
       </section>
 
       <section id="usage-results" class="results-section hidden">
-        <div class="results-header"><div><div id="usage-total" class="result-count">0</div><div><h2>Usage scan</h2><p id="usage-summary">Formula dependencies and Service Hook conditions.</p></div></div><span id="usage-status" class="pill success">✓ Complete</span></div>
+        <div class="results-header"><div><div id="usage-total" class="result-count">0</div><div><h2>Usage scan</h2><p id="usage-summary">Formula dependencies, Service Hook conditions and workflows.</p></div></div><span id="usage-status" class="pill success">✓ Complete</span></div>
         <div id="coverage-grid" class="collector-grid usage-coverage"></div>
         <div id="scan-limitations"></div>
         <div class="usage-group"><div class="group-heading"><div><span class="group-icon">ƒ</span><div><h3>Formula dependencies</h3><p>Selected formula inputs and formula fields that reference the selected field.</p></div></div><strong id="formula-count">0</strong></div><div id="formula-results" class="reference-list"></div></div>
         <div class="usage-group"><div class="group-heading"><div><span class="group-icon">⚡</span><div><h3>Service Hook conditions</h3><p>Exact field references found in configured hook conditions.</p></div></div><strong id="hook-count">0</strong></div><div id="hook-results" class="reference-list"></div></div>
-        <div class="dynamic-warning">ⓘ <p><strong>Current scan boundary.</strong> Service Hooks are matched by configured condition only. Object-scoped custom code is not downloaded or analyzed in this build, so hooks without a field reference in their condition are reported in limitations rather than claimed as field usage.</p></div>
+        <div class="usage-group"><div class="group-heading"><div><span class="group-icon">⇄</span><div><h3>Workflow references</h3><p>Latest version of every workflow definition: trigger conditions, activity properties and variables.</p></div></div><strong id="workflow-count">0</strong></div><div id="workflow-results" class="reference-list"></div></div>
+        <div class="dynamic-warning">ⓘ <p><strong>Current scan boundary.</strong> Service Hooks are matched by configured condition only. Object-scoped custom code is not downloaded or analyzed in this build, so hooks without a field reference in their condition are reported in limitations rather than claimed as field usage. Workflows are matched on their latest version's configuration; fields built dynamically at runtime or referenced only inside custom code called by a workflow are not detected.</p></div>
       </section>
     </div>
   </main>
