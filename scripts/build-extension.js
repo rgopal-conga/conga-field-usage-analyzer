@@ -73,7 +73,7 @@ export async function buildExtension({ outDir = join(root, 'dist', 'extension'),
   const shared = (await readdir(join(root, 'server'))).filter((name) => name.endsWith('.js') && !SERVER_ONLY.has(name));
   const problems = [];
   for (const name of shared) problems.push(...browserSafetyProblems(`server/${name}`, await readFile(join(root, 'server', name), 'utf8')));
-  problems.push(...browserSafetyProblems('public/app.js', await readFile(join(root, 'public', 'app.js'), 'utf8')));
+  for (const name of (await readdir(join(root, 'public'))).filter((file) => file.endsWith('.js'))) problems.push(...browserSafetyProblems(`public/${name}`, await readFile(join(root, 'public', name), 'utf8')));
   if (problems.length) throw new Error(`Extension build failed; shared code must stay browser-safe:\n - ${problems.join('\n - ')}`);
 
   await rm(outDir, { recursive: true, force: true });

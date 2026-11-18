@@ -1,3 +1,5 @@
+import { projectLabel, accessLabel, filterOptions, searchTerms, customCodeRowVisible } from './resultFilters.js';
+
 const state = {
   config: null, connection: null,
   selectedObject: null, selectedField: null,
@@ -191,24 +193,37 @@ function customCodeLocation(item) {
   }
   return `${referenceTitle(item.projectName, item.viewUrl)}<div class="muted">${escapeHtml(item.filePath)}:${escapeHtml(item.line)}</div>`;
 }
-function filterCustomCode(section, query) {
-  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+function filterCustomCode(section, items) {
+  const filters = {
+    project: section.querySelector('.table-filter-project')?.value ?? '',
+    access: section.querySelector('.table-filter-access')?.value ?? '',
+    terms: searchTerms(section.querySelector('.table-search-input')?.value)
+  };
   const rows = [...section.querySelectorAll('tbody tr')];
   let shown = 0;
-  for (const row of rows) {
-    const text = row.textContent.toLowerCase();
-    const visible = terms.every((term) => text.includes(term));
+  rows.forEach((row, index) => {
+    const visible = customCodeRowVisible(items[index], row.textContent, filters);
     row.classList.toggle('hidden', !visible);
     if (visible) shown += 1;
-  }
-  section.querySelector('.table-search-count').textContent = terms.length ? `${shown} of ${rows.length} shown` : '';
+  });
+  const filtered = filters.project || filters.access || filters.terms.length;
+  section.querySelector('.table-search-count').textContent = filtered ? `${shown} of ${rows.length} shown` : '';
   section.querySelector('.table-search-empty').classList.toggle('hidden', shown > 0);
+  section.querySelector('.table-filter-clear').classList.toggle('hidden', !filtered);
+}
+function filterSelect(className, label, allText, options) {
+  return `<label class="table-filter"><span>${escapeHtml(label)}</span><select class="${className}" aria-label="Filter by ${escapeHtml(label.toLowerCase())}"><option value="">${escapeHtml(allText)}</option>${options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.value)} (${option.count})</option>`).join('')}</select></label>`;
 }
 function renderCustomCode(items) {
   // Reuses existing styles (.top-actions, .search-box) because the CSP blocks inline styles.
-  const search = '<div class="top-actions"><div class="search-box"><span class="muted" aria-hidden="true">⌕</span><input type="search" class="table-search-input" placeholder="Search custom code results" aria-label="Search custom code results" autocomplete="off" spellcheck="false"></div><span class="table-search-count muted"></span></div>';
-  const empty = '<div class="table-search-empty muted hidden">No results match your search.</div>';
-  $('#customcode-section').innerHTML = usageSection('Custom code', items.length, 'No custom code references found', search +
+  const controls = '<div class="top-actions table-filters">' +
+    '<div class="search-box"><span class="muted" aria-hidden="true">⌕</span><input type="search" class="table-search-input" placeholder="Search custom code results" aria-label="Search custom code results" autocomplete="off" spellcheck="false"></div>' +
+    filterSelect('table-filter-project', 'Project', 'All projects', filterOptions(items, projectLabel)) +
+    filterSelect('table-filter-access', 'Access', 'All access', filterOptions(items, accessLabel)) +
+    '<button type="button" class="link-button table-filter-clear hidden">Clear filters</button>' +
+    '<span class="table-search-count muted"></span></div>';
+  const empty = '<div class="table-search-empty muted hidden">No results match your filters.</div>';
+  $('#customcode-section').innerHTML = usageSection('Custom code', items.length, 'No custom code references found', controls +
     table(['Project / file', 'Class · method', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
       customCodeLocation(item),
       escapeHtml([item.className, item.methodName].filter(Boolean).join(' · ') || '—'),
@@ -218,8 +233,17 @@ function renderCustomCode(items) {
       `<code>${escapeHtml(item.snippet)}</code>`
     ])) + empty);
   const section = $('#customcode-section');
-  const input = section.querySelector('.table-search-input');
-  if (input) input.addEventListener('input', () => filterCustomCode(section, input.value));
+  if (!section.querySelector('.table-filters')) return;
+  const apply = () => filterCustomCode(section, items);
+  section.querySelector('.table-search-input').addEventListener('input', apply);
+  section.querySelector('.table-filter-project').addEventListener('change', apply);
+  section.querySelector('.table-filter-access').addEventListener('change', apply);
+  section.querySelector('.table-filter-clear').addEventListener('click', () => {
+    section.querySelector('.table-search-input').value = '';
+    section.querySelector('.table-filter-project').value = '';
+    section.querySelector('.table-filter-access').value = '';
+    apply();
+  });
 }
 function safeHref(value) { try { const url = new URL(value); return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null; } catch { return null; } }
 function referenceTitle(text, viewUrl) { const href = viewUrl && safeHref(viewUrl); return href ? `<a class="reference-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="Open in Conga Platform">${escapeHtml(text)} <span aria-hidden="true">↗</span></a>` : escapeHtml(text); }

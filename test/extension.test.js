@@ -26,7 +26,7 @@ test('builds a Manifest V3 extension with the UI, the shared core and purple cir
   assert.ok(manifest.host_permissions.includes('https://*.congacloud.com/*'));
   assert.ok(manifest.host_permissions.includes('https://gateway.example.internal/*'), 'approved private gateway is added');
   assert.match(manifest.content_security_policy.extension_pages, /connect-src [^;]*https:\/\/gateway\.example\.internal/);
-  for (const file of ['index.html', 'app.js', 'styles.css', 'icon.svg', 'background.js', 'extension-config.js', 'core/api.js']) await readFile(join(outDir, file));
+  for (const file of ['index.html', 'app.js', 'resultFilters.js', 'styles.css', 'icon.svg', 'background.js', 'extension-config.js', 'core/api.js']) await readFile(join(outDir, file));
   const serverModules = (await readdir(new URL('../server/', import.meta.url))).filter((name) => name.endsWith('.js') && name !== 'index.js').sort();
   assert.deepEqual((await readdir(join(outDir, 'core'))).sort(), serverModules, 'every shared server module ships in the extension');
   for (const size of ICON_SIZES) {

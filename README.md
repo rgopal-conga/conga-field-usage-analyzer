@@ -111,7 +111,7 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
 
 Service Hooks have no section of their own. The code a hook runs is scanned under **Custom code**, and **Runs as** names the hook. A hook on the selected object whose configured condition names the field (`Object.Field` or `Field` as a whole token) is also listed under **Custom code** with access **Condition** and confidence **Exact**, showing the condition, the hook and the project/class it runs.
 
-The **Custom code** section has a search box that filters the displayed rows as you type. Every word must appear somewhere in the row (project, file, class, method, access, confidence, Runs as or code). It only filters what is already shown; it does not call the tenant again.
+The **Custom code** section has a search box and two drop-down filters: **Project** (each project with its row count; Service Hook conditions with no project appear as *(No project)*) and **Access** (Read, Write, Condition and any other access value in the results). Filters and search combine: a row is shown only when it matches the selected project, the selected access and every search word (project, file, class, method, access, confidence, Runs as or code). **Clear filters** resets them. Filtering only changes what is shown; it does not call the tenant again and nothing is saved.
 
 The results show **Scan coverage** (status and match count per collector) but no limitations list. A collector that could not finish shows `partial` or `failed` there. The `limitations` array is still returned by `POST /api/platform/usage-scan` for anyone calling the API directly.
 
