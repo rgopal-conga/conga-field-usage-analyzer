@@ -27,7 +27,7 @@ function candidatePaths(field) {
 }
 
 // Follows one lookup hop from `fromObject` using segment `segment`; returns the target object name or null.
-function followLookup(schemas, fromObject, segment) {
+export function followLookup(schemas, fromObject, segment) {
   const fields = schemas.get(lower(fromObject));
   if (!fields) return null;
   const wanted = lower(segment);

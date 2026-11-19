@@ -48,15 +48,28 @@ function workflowDefinition(definitionId) {
     ] };
 }
 const workflowQueries = [];
-// 103 Field Expressions over two pages: fe-0 updates Object250.TargetField, fe-1 (inactive) reads it in its
-// filter, fe-2 cannot be read, fe-3 is only *named* TargetField and must not match; the rest are unrelated.
-const fieldExpressionSummaries = Array.from({ length: 103 }, (_, index) => ({ Id: `fe-${index}`, Name: index === 3 ? 'TargetField' : `Expression ${index}`, IsActive: index !== 1, IsModifiable: true, UpdateField: index === 0 ? 'TargetField' : 'SellingTerm', ModifiedDate: '2026-11-17T00:00:00Z' }));
+// 103 Field Expressions over two pages, in the live tenant's shapes (list = bare array of Id/Name; detail as
+// returned by GET /api/revenue-admin/v1/field-expressions/{id}). Object016 plays LineItem: its AttributeValue
+// lookup points at Object250, OtherRel points elsewhere, and there is no Attribute lookup.
+//   fe-0 updates AttributeValue.TargetField (resolved -> Exact)   fe-1 (inactive) reads $.TargetField in its condition
+//   fe-2 cannot be read                                           fe-3 is only *named* TargetField / has it in a literal
+//   fe-4 updates Attribute.TargetField (unresolved -> Probable)   fe-5 updates by label "Late Field" (Probable)
+//   fe-6 uses bare TargetField in its value expression (Probable) fe-7 updates OtherRel.TargetField (other object, no match)
+const fieldExpressionSummaries = Array.from({ length: 103 }, (_, index) => ({ Id: `fe-${index}`, Name: index === 3 ? 'TargetField' : `Expression ${index}` }));
 function fieldExpressionDefinition(id) {
   const index = Number(id.split('-')[1]);
-  const base = { Id: id, Name: fieldExpressionSummaries[index].Name, IsActive: index !== 1, ExpressionType: 'Field Update', ExpressionContext: 'Record Update', SourceObject: 'Line Item', Scope: 'Product' };
-  if (index === 0) return { ...base, UpdateObject: 'Object 250', UpdateField: 'TargetField', ValueExpression: { Expression: 'Object250.Other * 2' } };
-  if (index === 1) return { ...base, UpdateObject: 'Line Item', UpdateField: 'SellingTerm', FilterExpression: { Expression: 'Object250.TargetField == "3 Years"' } };
-  return { ...base, UpdateObject: 'Line Item', UpdateField: 'SellingTerm', ValueExpression: { Expression: 'LineItem.Quantity * 12' } };
+  const base = { Id: id, Name: fieldExpressionSummaries[index].Name, CreatedBy: { Id: 'u1', Name: 'TargetField' }, ModifiedBy: { Id: 'u1', Name: 'Admin' },
+    ModifiedDate: '2026-06-17T19:30:33.617', ETag: 'etag', ExternalId: null, IsActive: index !== 1, ConditionExpression: '$.Quantity > 0', ConditionScope: 'Product',
+    EvaluationContext: 'Record Update', Expression: "'25 Mbps'", ExpressionType: 'Field Update', GroupByField: null, IsModifiable: true, Operation: null,
+    ParentField: null, ProductGroup: null, Product: { Id: 'p1', Name: 'Internet Service' }, SourceObject: 'Object016', UpdateField: 'Quantity', UpdateObject: 'Object016' };
+  if (index === 0) return { ...base, UpdateField: 'AttributeValue.TargetField' };
+  if (index === 1) return { ...base, UpdateObject: 'Object250', SourceObject: 'Object250', UpdateField: 'Field000', ConditionExpression: '$.TargetField > 0' };
+  if (index === 3) return { ...base, Expression: "'TargetField'" };
+  if (index === 4) return { ...base, UpdateField: 'Attribute.TargetField' };
+  if (index === 5) return { ...base, UpdateField: 'Late Field', Product: null, ProductGroup: { Id: 'g1', Name: 'Hardware' } };
+  if (index === 6) return { ...base, UpdateObject: 'Object250', SourceObject: 'Object250', UpdateField: 'Field000', Expression: 'TargetField * 2' };
+  if (index === 7) return { ...base, UpdateField: 'OtherRel.TargetField' };
+  return base;
 }
 const fieldExpressionQueries = [];
 // Cross-object formulas: Object010 -> Object250 via lookup, Object011 -> Object010 -> Object250 (two hops),
@@ -77,7 +90,12 @@ const crossObjectSchemas = {
   ],
   Object013: [{ FieldName: 'Named', DataType: 'Currency', IsCalculated: true, Expression: 'Object250.TargetField - 1' }],
   Object014: [{ FieldName: 'InString', DataType: 'String', IsCalculated: true, Expression: 'CONCAT("Object250.TargetField", Name)' }],
-  Object015: 'fail'
+  Object015: 'fail',
+  Object016: [
+    { FieldName: 'AttributeValue', DataType: 'Lookup', LookupObjectName: 'Object250' },
+    { FieldName: 'OtherRel', DataType: 'Lookup', LookupObjectName: 'Object001' },
+    { FieldName: 'Quantity', DataType: 'Decimal' }
+  ]
 };
 function json(response, status, payload) { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(payload)); }
 async function post(path, payload) { return fetch(`${baseUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
@@ -112,12 +130,12 @@ before(async () => {
     if (url.pathname === '/api/search/v1/objects/FieldExpression/query' && request.method === 'POST') {
       let raw = ''; for await (const chunk of request) raw += chunk;
       const body = JSON.parse(raw); fieldExpressionQueries.push({ query: url.search, body });
-      return json(response, 200, { Success: true, Data: fieldExpressionSummaries.slice(body.Skip, body.Skip + body.Limit), TotalCount: fieldExpressionSummaries.length });
+      return json(response, 200, fieldExpressionSummaries.slice(body.Skip, body.Skip + body.Limit));
     }
     const fieldExpressionMatch = url.pathname.match(/^\/api\/revenue-admin\/v1\/field-expressions\/([^/]+)$/);
     if (fieldExpressionMatch) {
       if (fieldExpressionMatch[1] === 'fe-2') return json(response, 500, { Message: 'Field expression unavailable' });
-      return json(response, 200, { Success: true, Data: fieldExpressionDefinition(fieldExpressionMatch[1]) });
+      return json(response, 200, fieldExpressionDefinition(fieldExpressionMatch[1]));
     }
     const workflowMatch = url.pathname.match(/^\/api\/workflow\/v1\/workflow-definitions\/([^/]+)\/Latest$/);
     if (workflowMatch) {
@@ -296,34 +314,55 @@ test('formula dependencies include formulas on other objects reached through loo
   assert.ok(result.limitations.some((text) => /1 object schema\(s\) could not be read.*Object015/.test(text)));
 });
 
-test('field expression matcher reads updates, filters and values, and ignores record metadata', () => {
-  const definition = { Id: 'x', Name: 'TargetField rule', UpdateObject: 'Line Item', UpdateField: 'SellingTerm',
-    FilterExpression: { Expression: 'LineItem.Term == "3 Years" && Product.Family == "HW"' }, ValueExpression: { Expression: 'IF(Term == "3 Years", 36, 12)' },
-    ModifiedBy: { Name: 'Term' } };
-  assert.deepEqual(findFieldInFieldExpression(definition, 'LineItem', 'SellingTerm').map((item) => [item.usage, item.confidence]), [['Field update', 'Exact']]);
-  assert.deepEqual(findFieldInFieldExpression(definition, 'LineItem', 'Term').map((item) => [item.usage, item.confidence]), [['Filter expression', 'Exact'], ['Value expression', 'Probable']]);
-  assert.deepEqual(findFieldInFieldExpression(definition, 'Product', 'Family').map((item) => [item.usage, item.confidence]), [['Filter expression', 'Exact']]);
-  assert.deepEqual(findFieldInFieldExpression(definition, 'Agreement', 'SellingTerm'), [], 'a field update on another object is not a match');
-  assert.deepEqual(findFieldInFieldExpression(definition, 'LineItem', 'TargetField'), [], 'the expression name is not a reference');
-  assert.deepEqual(findFieldInFieldExpression({ UpdateField: 'Agreement.Status' }, 'Agreement', 'Status').map((item) => item.confidence), ['Exact']);
+test('field expression matcher reads the live detail shape: update field, $. condition, value literal', () => {
+  // Response of GET /api/revenue-admin/v1/field-expressions/8910bbdb-... on preview-rls09.
+  const internetSpeed = { Id: '8910bbdb-e298-467d-8938-293f48ee3daa', Name: 'InternetSpeed', CreatedBy: { Id: 'u', Name: 'Manthan Shah' }, CreatedDate: '2026-06-17T19:16:09.68',
+    ModifiedBy: { Id: 'u', Name: 'Manthan Shah' }, ModifiedDate: '2026-06-17T19:30:33.617', ETag: 'e', ExternalId: null, IsActive: true,
+    ConditionExpression: '$.Quantity > 0', ConditionScope: 'Product', EvaluationContext: 'Record Update', Expression: "'25 Mbps'", ExpressionType: 'Field Update',
+    GroupByField: null, IsModifiable: true, Operation: null, ParentField: null, ProductGroup: null, Product: { Id: 'p', Name: 'Internet Service' },
+    SourceObject: 'LineItem', UpdateField: 'Attribute.Internet_Speed_c', UpdateObject: 'LineItem' };
+  const shape = (matches) => matches.map((item) => [item.usage, item.confidence, item.snippet]);
+  assert.deepEqual(shape(findFieldInFieldExpression(internetSpeed, 'LineItem', 'Quantity')), [['Condition', 'Exact', '$.Quantity > 0']]);
+  assert.deepEqual(shape(findFieldInFieldExpression(internetSpeed, 'Asset', 'Quantity')), [], '$. is the source object, not any object');
+  assert.deepEqual(shape(findFieldInFieldExpression(internetSpeed, 'LineItemAttributeValue', 'Internet_Speed_c')), [['Field update', 'Probable', 'Attribute.Internet_Speed_c']], 'no schema: relationship unresolved');
+  const schemas = new Map([['lineitem', [{ name: 'Attribute', lookupObjectName: 'LineItemAttributeValue' }]]]);
+  assert.deepEqual(shape(findFieldInFieldExpression(internetSpeed, 'LineItemAttributeValue', 'Internet_Speed_c', { schemas })), [['Field update', 'Exact', 'Attribute.Internet_Speed_c']]);
+  assert.deepEqual(findFieldInFieldExpression(internetSpeed, 'ProductAttributeValue', 'Internet_Speed_c', { schemas }), [], 'the lookup leads to a different object');
+  assert.deepEqual(findFieldInFieldExpression(internetSpeed, 'LineItem', 'Mbps'), [], 'quoted literals are not references');
+  assert.deepEqual(findFieldInFieldExpression(internetSpeed, 'LineItem', 'Name'), [], 'record metadata and Product name are not references');
+  assert.deepEqual(findFieldInFieldExpression(internetSpeed, 'LineItem', 'Product'), [], 'ConditionScope is not a reference');
+  assert.deepEqual(shape(findFieldInFieldExpression({ UpdateObject: 'LineItem', UpdateField: 'TotalQuantity' }, 'LineItem', 'TotalQuantity')), [['Field update', 'Exact', 'TotalQuantity']]);
+  assert.deepEqual(shape(findFieldInFieldExpression({ UpdateObject: 'LineItem', UpdateField: 'Currency Attribute' }, 'X', 'Currency_Attribute_c', { fieldLabel: 'Currency Attribute' })), [['Field update', 'Probable', 'Currency Attribute']]);
+  assert.deepEqual(shape(findFieldInFieldExpression({ SourceObject: 'LineItem', Expression: 'LineItem.ListPrice * 2' }, 'LineItem', 'ListPrice')), [['Value expression', 'Exact', 'LineItem.ListPrice * 2']]);
+  assert.deepEqual(shape(findFieldInFieldExpression({ SourceObject: 'LineItem', Expression: 'ListPrice * 2' }, 'LineItem', 'ListPrice')), [['Value expression', 'Probable', 'ListPrice * 2']]);
 });
 
-test('usage scan pages field expressions, links them and tolerates an unreadable one', async () => {
+test('usage scan pages field expressions with Id/Name only, resolves relationships and tolerates an unreadable one', async () => {
   const before = fieldExpressionQueries.length;
   const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }));
   assert.equal(response.status, 200); const result = await response.json();
   const queries = fieldExpressionQueries.slice(before);
   assert.equal(queries.length, 2); assert.match(queries[0].query, /includeTotalCount=true/);
-  assert.deepEqual(queries[0].body, { ObjectName: 'FieldExpression', Criteria: '', Select: ['Id', 'Name', 'IsActive', 'IsModifiable', 'UpdateField', 'ModifiedDate'], Skip: 0, Limit: 100, Sort: { FieldName: 'ModifiedDate', OrderBy: 'Descending' } });
+  assert.deepEqual(queries[0].body, { ObjectName: 'FieldExpression', Criteria: '', Select: ['Id', 'Name'], Skip: 0, Limit: 100, Sort: { FieldName: 'Id', OrderBy: 'Ascending' } });
   assert.equal(queries[1].body.Skip, 100);
   assert.equal(result.coverage.fieldExpressionsScanned, 103);
   assert.deepEqual(result.fieldExpressions.map((item) => [item.expressionName, item.usage, item.confidence, item.active]), [
     ['Expression 0', 'Field update', 'Exact', true],
-    ['Expression 1', 'Filter expression', 'Exact', false]
+    ['Expression 1', 'Condition', 'Exact', false],
+    ['Expression 4', 'Field update', 'Probable', true],
+    ['Expression 5', 'Field update', 'Probable', true],
+    ['Expression 6', 'Value expression', 'Probable', true]
   ]);
-  assert.equal(result.fieldExpressions[0].viewUrl, `${upstreamUrl}/cadmin/field-expression/fe-0`);
+  const first = result.fieldExpressions[0];
+  assert.equal(first.viewUrl, `${upstreamUrl}/cadmin/field-expression/fe-0`);
+  assert.deepEqual([first.updateObject, first.updateField, first.product, first.expressionType, first.evaluationContext], ['Object016', 'AttributeValue.TargetField', 'Internet Service', 'Field Update', 'Record Update']);
+  assert.equal(first.matches[0].note, 'AttributeValue → Object250');
+  assert.deepEqual([first.conditionScope, first.conditionExpression, first.expression], ['Product', '$.Quantity > 0', "'25 Mbps'"]);
+  assert.match(result.fieldExpressions[2].matches[0].note, /could not be resolved/);
+  assert.equal(result.fieldExpressions[3].matches[0].note, 'matched by field label');
+  assert.equal(result.fieldExpressions[3].productGroup, 'Hardware');
   const collector = result.coverage.collectors.find((item) => item.key === 'fieldExpressions');
-  assert.deepEqual([collector.status, collector.matches], ['partial', 2]);
+  assert.deepEqual([collector.status, collector.matches], ['partial', 5]);
   assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'customCode']);
   assert.ok(result.limitations.some((text) => /1 field expression\(s\) could not be read/.test(text)));
 });

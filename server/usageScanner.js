@@ -55,10 +55,12 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
   // A failure here must not block the scan; the custom code results simply lose that wiring.
   let hookError = null;
   const hooksPromise = client.listServiceHooks().catch((error) => { hookError = error; return []; });
+  // Field expressions follow relationship paths (e.g. AttributeValue.X) through the same tenant schemas.
+  const schemaPromise = loadAllSchemas(client, objectName);
   const [schemaScan, workflowScan, fieldExpressionScan, customCodeScan, hooks] = await Promise.all([
-    loadAllSchemas(client, objectName),
+    schemaPromise,
     scanWorkflows(client, objectName, fieldName).catch((error) => ({ error })),
-    scanFieldExpressions(client, objectName, fieldName).catch((error) => ({ error })),
+    scanFieldExpressions(client, objectName, fieldName, { schemas: schemaPromise.then((scan) => scan.schemas) }).catch((error) => ({ error })),
     hooksPromise.then((list) => scanCustomCode(client, objectName, fieldName, { hooks: list })).catch((error) => ({ error })),
     hooksPromise
   ]);

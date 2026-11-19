@@ -1,106 +1,101 @@
 // Finds references to one field inside CPQ Field Expressions on Conga Platform.
 //
-//   list:   POST /api/search/v1/objects/FieldExpression/query?includeTotalCount=true
+//   list:   POST /api/search/v1/objects/FieldExpression/query?includeTotalCount=true  (Id and Name only)
 //   detail: GET  /api/revenue-admin/v1/field-expressions/{id}
 //
-// The detail shape is read generically: every string in the definition is checked, and the
-// JSON key it sits under decides how the match is labelled (field update, filter, value).
+// Detail shape (observed on a live tenant):
+//   { Id, Name, IsActive, ModifiedDate, ExpressionType: 'Field Update', EvaluationContext: 'Record Update',
+//     UpdateObject: 'LineItem', UpdateField: 'Attribute.Internet_Speed_c', SourceObject: 'LineItem',
+//     ConditionExpression: '$.Quantity > 0', ConditionScope: 'Product', Expression: "'25 Mbps'",
+//     GroupByField, ParentField, Operation, Product: { Id, Name }, ProductGroup, CreatedBy, ModifiedBy, ETag, ... }
+//
+// Only the reference-bearing properties are checked; everything else is shown as context.
+//   UpdateField                  path from UpdateObject   ("Quantity", "AttributeValue.Battery_Capacity_c")
+//   ConditionExpression, Expression   expressions; `$.Path` is a path from SourceObject
+//   GroupByField, ParentField    paths from SourceObject
+// Relationship segments (e.g. AttributeValue) are followed through lookup fields in the tenant schemas.
 // Browser-safe: runs in the standalone server and in the Chrome extension.
+
+import { followLookup } from './formulaScanner.js';
 
 function pick(object, ...names) {
   for (const name of names) if (object && object[name] !== undefined) return object[name];
   return undefined;
 }
 
-const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const tokenPattern = (value) => new RegExp(`(^|[^A-Za-z0-9_])${escapeRegex(value)}($|[^A-Za-z0-9_])`, 'i');
-const normalizeObject = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const lower = (value) => String(value ?? '').toLowerCase();
+const normalizeObject = (value) => lower(value).replace(/[^a-z0-9]/g, '');
+const sameObject = (left, right) => Boolean(left) && Boolean(right) && normalizeObject(left) === normalizeObject(right);
+const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const expressionPath = /(\$\.)?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/g;
+const rank = { Exact: 2, Probable: 1 };
 
-// Record bookkeeping that must never count as a reference (a field called "Name" would
-// otherwise match every expression's own name).
-const metadataKeys = new Set(['id', 'name', 'displayname', 'description', 'externalid', 'version', 'createddate', 'modifieddate',
-  'isactive', 'ismodifiable', 'isdeleted', 'ownerid', 'organizationid', 'tenantid', 'createdbyid', 'modifiedbyid']);
-const metadataSubtrees = /^(createdby|modifiedby|owner|organization|tenant|audit|systemfields)/i;
-const updateFieldKeys = new Set(['updatefield', 'updatefieldname', 'targetfield', 'targetfieldname']);
-const objectKeys = new Set(['updateobject', 'updateobjectname', 'sourceobject', 'sourceobjectname', 'targetobject', 'targetobjectname', 'objectname']);
+const pathProperties = [
+  { key: 'UpdateField', usage: 'Field update', owner: 'update' },
+  { key: 'GroupByField', usage: 'Group by field', owner: 'source' },
+  { key: 'ParentField', usage: 'Parent field', owner: 'source' }
+];
+const expressionProperties = [
+  { key: 'ConditionExpression', usage: 'Condition' },
+  { key: 'Expression', usage: 'Value expression' }
+];
 
-function usageFor(path) {
-  const keys = path.map((key) => String(key).toLowerCase());
-  const last = keys.at(-1) ?? '';
-  if (updateFieldKeys.has(last)) return 'Field update';
-  if (keys.some((key) => key.includes('filter') || key.includes('criteria') || key.includes('condition'))) return 'Filter expression';
-  if (keys.some((key) => key.includes('value'))) return 'Value expression';
-  return 'Expression';
-}
-
-function snippetAround(text, pattern) {
-  const match = pattern.exec(text);
-  if (!match) return text.slice(0, 200);
-  const start = Math.max(0, match.index - 80);
-  const end = Math.min(text.length, match.index + match[0].length + 80);
-  return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
-}
-
-// Yields [path, value] for every string in the definition, skipping record metadata.
-function* strings(value, path = [], depth = 0) {
-  if (depth > 12 || value === null || value === undefined) return;
-  if (typeof value === 'string') { yield [path, value]; return; }
-  if (Array.isArray(value)) { for (let index = 0; index < value.length; index += 1) yield* strings(value[index], path, depth + 1); return; }
-  if (typeof value !== 'object') return;
-  for (const [key, nested] of Object.entries(value)) {
-    const lower = key.toLowerCase();
-    if (depth === 0 && metadataKeys.has(lower)) continue;
-    if (metadataSubtrees.test(key)) continue;
-    yield* strings(nested, [...path, key], depth + 1);
+// Classifies one dotted path, read from `owner`, as a reference to objectName.fieldName.
+// Returns { confidence, note } or null.
+export function classifyPath(schemas, owner, segments, objectName, fieldName) {
+  if (!segments.length || lower(segments.at(-1)) !== lower(fieldName)) return null;
+  let hops = segments.slice(0, -1);
+  if (hops.length && owner && sameObject(hops[0], owner)) hops = hops.slice(1);
+  if (!hops.length) return owner && sameObject(owner, objectName) ? { confidence: 'Exact' } : null;
+  if (hops.length === 1 && sameObject(hops[0], objectName)) return { confidence: 'Exact' };
+  let current = owner;
+  for (const hop of hops) {
+    const next = schemas && current ? followLookup(schemas, current, hop) : null;
+    if (!next) return { confidence: 'Probable', note: `relationship ${hops.join('.')} could not be resolved from ${owner || 'the expression object'}` };
+    current = next;
   }
+  return sameObject(current, objectName) ? { confidence: 'Exact', note: `${hops.join('.')} → ${current}` } : null;
 }
 
-// Objects the expression works on (update object / source object), used as context for
-// bare field names. "Line Item" and "LineItem" are treated as the same object.
-function expressionObjects(definition) {
-  const found = new Set();
-  for (const [path, text] of strings(definition)) {
-    const key = String(path.at(-1) ?? '').toLowerCase();
-    if (objectKeys.has(key) && text.trim()) found.add(normalizeObject(text));
-    if (updateFieldKeys.has(key) && text.includes('.')) found.add(normalizeObject(text.split('.')[0]));
-  }
-  return found;
+function stripLiterals(text) {
+  return text.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (match) => ' '.repeat(match.length));
 }
 
-function objectInContext(objects, objectName) {
-  const selected = normalizeObject(objectName);
-  for (const candidate of objects) {
-    if (!candidate) continue;
-    if (candidate === selected || selected.startsWith(candidate) || candidate.startsWith(selected)) return true;
-  }
-  return false;
-}
-
-export function findFieldInFieldExpression(definition, objectName, fieldName) {
-  const qualified = tokenPattern(`${objectName}.${fieldName}`);
-  const bare = tokenPattern(fieldName);
-  const sameObject = objectInContext(expressionObjects(definition), objectName);
+export function findFieldInFieldExpression(definition, objectName, fieldName, { schemas = null, fieldLabel = null } = {}) {
+  const updateObject = pick(definition, 'UpdateObject', 'updateObject') || pick(definition, 'SourceObject', 'sourceObject') || null;
+  const sourceObject = pick(definition, 'SourceObject', 'sourceObject') || updateObject;
   const matches = [];
-  const seen = new Set();
-  for (const [path, text] of strings(definition)) {
-    if (!text) continue;
-    const key = String(path.at(-1) ?? '').toLowerCase();
-    if (objectKeys.has(key)) continue;
-    let confidence = null;
-    if (updateFieldKeys.has(key)) {
-      const [maybeObject, maybeField] = text.includes('.') ? text.split('.', 2) : [null, text];
-      if (maybeField.trim().toLowerCase() !== fieldName.toLowerCase()) continue;
-      if (maybeObject) confidence = normalizeObject(maybeObject) === normalizeObject(objectName) ? 'Exact' : null;
-      else confidence = sameObject ? 'Exact' : null;
-    } else if (qualified.test(text)) confidence = 'Exact';
-    else if (sameObject && bare.test(text)) confidence = 'Probable';
-    if (!confidence) continue;
-    const usage = usageFor(path);
-    const property = path.join('.');
-    const dedupe = `${usage}|${property}|${text}`;
-    if (seen.has(dedupe)) continue;
-    seen.add(dedupe);
-    matches.push({ property, usage, confidence, snippet: snippetAround(text, qualified.test(text) ? qualified : bare) });
+
+  for (const { key, usage, owner } of pathProperties) {
+    const value = pick(definition, key, key[0].toLowerCase() + key.slice(1));
+    if (typeof value !== 'string' || !value.trim()) continue;
+    const text = value.trim();
+    const segments = text.split('.').map((part) => part.trim());
+    let found = null;
+    if (segments.every((part) => identifier.test(part))) {
+      found = classifyPath(schemas, owner === 'update' ? updateObject : sourceObject, segments, objectName, fieldName);
+    } else if (fieldLabel && lower(text) === lower(fieldLabel)) {
+      // e.g. UpdateField "Currency Attribute": a display name rather than an API name.
+      found = { confidence: 'Probable', note: 'matched by field label' };
+    }
+    if (found) matches.push({ property: key, usage, snippet: text, ...found });
+  }
+
+  for (const { key, usage } of expressionProperties) {
+    const value = pick(definition, key, key[0].toLowerCase() + key.slice(1));
+    if (typeof value !== 'string' || !value.trim()) continue;
+    let best = null;
+    for (const match of stripLiterals(value).matchAll(expressionPath)) {
+      const anchored = Boolean(match[1]);
+      const segments = match[0].replace(/^\$\./, '').split('.');
+      let found = classifyPath(schemas, sourceObject, segments, objectName, fieldName);
+      // A path without `$.` is not tied to the record for certain, unless it names the selected object.
+      if (found && !anchored && found.confidence === 'Exact' && !(segments.length === 2 && sameObject(segments[0], objectName))) {
+        found = { ...found, confidence: 'Probable' };
+      }
+      if (found && (!best || rank[found.confidence] > rank[best.confidence])) best = found;
+    }
+    if (best) matches.push({ property: key, usage, snippet: value.trim(), ...best });
   }
   return matches;
 }
@@ -113,35 +108,49 @@ async function mapWithConcurrency(items, limit, worker) {
   return results;
 }
 
-export async function scanFieldExpressions(client, objectName, fieldName) {
+const relatedName = (value) => (value && typeof value === 'object' ? pick(value, 'Name', 'name') : value) || null;
+
+// `schemas` (optional) is a promise or Map of lower(objectName) -> fields, used to follow relationship paths.
+export async function scanFieldExpressions(client, objectName, fieldName, { schemas = null } = {}) {
   const summaries = await client.listFieldExpressions();
   const failures = [];
-  const perExpression = await mapWithConcurrency(summaries, 5, async (summary) => {
-    const expressionId = String(pick(summary, 'Id', 'id') ?? '');
-    const summaryName = pick(summary, 'Name', 'name') || expressionId;
-    try {
-      const definition = await client.getFieldExpression(expressionId);
-      const found = findFieldInFieldExpression(definition, objectName, fieldName);
-      // The list row's UpdateField counts too, in case the detail spells it differently.
-      const listUpdateField = pick(summary, 'UpdateField', 'updateField');
-      if (typeof listUpdateField === 'string' && !found.some((match) => match.usage === 'Field update')) {
-        const fromList = findFieldInFieldExpression({ ...definition, UpdateField: listUpdateField }, objectName, fieldName).filter((match) => match.usage === 'Field update');
-        found.unshift(...fromList);
-      }
-      const active = pick(definition, 'IsActive', 'isActive') ?? pick(summary, 'IsActive', 'isActive');
-      return found.map((match) => ({
-        id: `field-expression:${expressionId}:${match.property}:${match.usage}`,
-        recordId: expressionId,
-        expressionName: pick(definition, 'Name', 'name') || summaryName,
-        active: active === undefined ? null : Boolean(active),
-        updateField: pick(definition, 'UpdateField', 'updateField') ?? listUpdateField ?? null,
-        modifiedDate: pick(definition, 'ModifiedDate', 'modifiedDate') ?? pick(summary, 'ModifiedDate', 'modifiedDate') ?? null,
-        ...match
-      }));
-    } catch (error) {
-      failures.push(summaryName);
-      return [];
-    }
+  const definitions = await mapWithConcurrency(summaries, 5, async (summary) => {
+    const id = String(pick(summary, 'Id', 'id') ?? '');
+    try { return { summary, definition: await client.getFieldExpression(id) }; }
+    catch { failures.push(pick(summary, 'Name', 'name') || id); return null; }
   });
-  return { results: perExpression.flat(), fieldExpressionsScanned: summaries.length, failures };
+  const schemaMap = await Promise.resolve(schemas).catch(() => null);
+  const fieldLabel = schemaMap?.get(lower(objectName))?.find((field) => lower(field.name) === lower(fieldName))?.label ?? null;
+
+  const results = [];
+  for (const entry of definitions) {
+    if (!entry) continue;
+    const { summary, definition } = entry;
+    const matches = findFieldInFieldExpression(definition, objectName, fieldName, { schemas: schemaMap, fieldLabel });
+    if (!matches.length) continue;
+    const recordId = String(pick(definition, 'Id', 'id') ?? pick(summary, 'Id', 'id'));
+    const active = pick(definition, 'IsActive', 'isActive');
+    results.push({
+      id: `field-expression:${recordId}`,
+      recordId,
+      expressionName: pick(definition, 'Name', 'name') || pick(summary, 'Name', 'name') || recordId,
+      active: active === undefined ? null : Boolean(active),
+      usage: matches.map((match) => match.usage).join(', '),
+      confidence: matches.some((match) => match.confidence === 'Exact') ? 'Exact' : 'Probable',
+      matches,
+      expressionType: pick(definition, 'ExpressionType', 'expressionType') ?? null,
+      evaluationContext: pick(definition, 'EvaluationContext', 'evaluationContext') ?? null,
+      updateObject: pick(definition, 'UpdateObject', 'updateObject') ?? null,
+      updateField: pick(definition, 'UpdateField', 'updateField') ?? null,
+      sourceObject: pick(definition, 'SourceObject', 'sourceObject') ?? null,
+      conditionScope: pick(definition, 'ConditionScope', 'conditionScope') ?? null,
+      conditionExpression: pick(definition, 'ConditionExpression', 'conditionExpression') ?? null,
+      expression: pick(definition, 'Expression', 'expression') ?? null,
+      product: relatedName(pick(definition, 'Product', 'product')),
+      productGroup: relatedName(pick(definition, 'ProductGroup', 'productGroup')),
+      modifiedDate: pick(definition, 'ModifiedDate', 'modifiedDate') ?? null
+    });
+  }
+  results.sort((left, right) => (rank[right.confidence] - rank[left.confidence]) || left.expressionName.localeCompare(right.expressionName));
+  return { results, fieldExpressionsScanned: summaries.length, failures };
 }

@@ -176,11 +176,46 @@ function renderUsage(result) {
       referenceTitle(item.workflowName, item.viewUrl), escapeHtml(item.usage)
     ])));
   $('#fieldexpression-section').innerHTML = usageSection('Field expressions', fieldExpressions.length, 'No field expression references found',
-    table(['Field expression name', 'Type'], fieldExpressions.map((item) => [
-      `${referenceTitle(item.expressionName, item.viewUrl)}${item.active === false ? ' <span class="muted">(inactive)</span>' : ''}`,
-      escapeHtml(item.usage)
-    ])));
+    fieldExpressionLegend + table(['Field expression name', 'Is active', 'Expression type', 'Scope', 'Filter expression', 'Update object', 'Update field', 'Update expression'],
+      fieldExpressions.map(fieldExpressionRow)));
   renderCustomCode(customCode);
+}
+// One Field Expression row. The cell that references the scanned field is highlighted:
+// green = exact match, orange = probable match (see the legend above the table). Blank values stay blank.
+function fieldExpressionRow(item) {
+  const matches = item.matches ?? [];
+  const level = (...properties) => {
+    const hit = matches.filter((match) => properties.includes(match.property));
+    if (!hit.length) return null;
+    return { confidence: hit.some((match) => match.confidence === 'Exact') ? 'exact' : 'probable', title: hit.map((match) => match.note).filter(Boolean).join('; ') };
+  };
+  const mark = (html, ...properties) => {
+    const hit = level(...properties);
+    if (!hit || !html) return html;
+    return `<span class="field-match field-match-${hit.confidence}"${hit.title ? ` title="${escapeHtml(hit.title)}"` : ''}>${html}</span>`;
+  };
+  const code = (value) => (value ? `<code>${escapeHtml(value)}</code>` : '');
+  const extra = matches.filter((match) => match.property === 'GroupByField' || match.property === 'ParentField')
+    .map((match) => `<div class="muted">${escapeHtml(match.usage)}: ${mark(code(match.snippet), match.property)}</div>`).join('');
+  return [
+    `${referenceTitle(item.expressionName, item.viewUrl)}${extra}`,
+    item.active === null || item.active === undefined ? '' : item.active ? 'Yes' : 'No',
+    escapeHtml(item.expressionType ?? ''),
+    escapeHtml(fieldExpressionScope(item)),
+    mark(code(item.conditionExpression), 'ConditionExpression'),
+    escapeHtml(item.updateObject ?? ''),
+    mark(code(item.updateField), 'UpdateField'),
+    mark(code(item.expression), 'Expression')
+  ];
+}
+const fieldExpressionLegend = '<div class="match-legend"><span><i class="field-match-exact"></i>Exact match</span><span><i class="field-match-probable"></i>Probable match</span></div>';
+// "Product - Internet Service", "Product Group - Hardware"; a scope with no item (e.g. Header) is shown on its own.
+function fieldExpressionScope(item) {
+  const scope = item.conditionScope || '';
+  const key = scope.toLowerCase().replace(/[^a-z]/g, '');
+  const target = key === 'product' ? item.product : key === 'productgroup' ? item.productGroup : null;
+  if (!scope) return item.product ? `Product - ${item.product}` : item.productGroup ? `Product Group - ${item.productGroup}` : '';
+  return target ? `${scope} - ${target}` : scope;
 }
 function runsAsText(item) {
   if (!item.runsAs || !item.runsAs.length) return '<span class="muted">Not linked to a hook, callback or Custom API</span>';

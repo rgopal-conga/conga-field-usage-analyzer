@@ -84,13 +84,17 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
    - If the workflow API is unavailable, or a definition cannot be read, the collector reports `failed`/`partial` in limitations; the other collectors still return.
 
 3. **Field expression references** (CPQ Field Expressions)
-   - Pages through `POST /api/search/v1/objects/FieldExpression/query?includeTotalCount=true` (all expressions, active and inactive, newest first; `Skip` advances by the rows actually returned).
+   - Pages through `POST /api/search/v1/objects/FieldExpression/query?includeTotalCount=true` selecting only `Id` and `Name`, sorted by `Id` (unique, so `Skip` paging cannot repeat or miss rows that share a `ModifiedDate`). The response is a bare array; rows are de-duplicated by `Id`.
    - Reads each expression from `GET /api/revenue-admin/v1/field-expressions/{id}`, five at a time.
-   - Checks every string in the definition; record metadata (`Id`, `Name`, `Description`, created/modified details) is ignored:
-     - `UpdateField` equal to the field, on the selected object (from `UpdateObject`/`SourceObject`, or an `Object.Field` value) → **Field update**, **Exact**.
-     - `Object.Field` anywhere else → **Exact**.
-     - The bare field name as a whole word, in an expression whose update or source object is the selected object (`Line Item` = `LineItem`) → **Probable**.
-   - Usage is labelled Field update, Filter expression, Value expression or Expression from the JSON key the match sits under. Inactive expressions are marked *(inactive)*.
+   - Checks only the reference-bearing properties of the detail:
+     - `UpdateField` — a path from `UpdateObject` (`Quantity`, `AttributeValue.Battery_Capacity_c`) → **Field update**.
+     - `ConditionExpression` → **Condition**; `Expression` → **Value expression**. `$.Path` is a path from `SourceObject`; quoted literals (`'25 Mbps'`) are ignored.
+     - `GroupByField`, `ParentField` — paths from `SourceObject`.
+   - Relationship segments such as `AttributeValue.` are followed through lookup fields in the tenant schemas (the same resolution the formula collector uses):
+     - Path resolves to the selected object (or names it explicitly, `Object.Field`) → **Exact**.
+     - A relationship that cannot be resolved, a bare name without `$.`, or an `UpdateField` that is a display label (e.g. `Currency Attribute`) matching the field label → **Probable**, with a note.
+   - Record metadata (`Name`, `CreatedBy`, `ModifiedBy`, `ETag`, …), `ConditionScope`, `EvaluationContext` and `Product`/`ProductGroup` names are context only, never matches.
+   - One row per expression with columns **Field expression name** (linked), **Is active**, **Expression type**, **Scope** (`ConditionScope` plus the product or product group name, e.g. `Product - Internet Service`; a scope such as `Header` is shown on its own), **Filter expression** (`ConditionExpression`), **Update object**, **Update field** and **Update expression** (`Expression`). Blank values stay blank. The cell that references the field is highlighted green (exact) or orange (probable), with a legend above the table; hovering shows any note (e.g. an unresolved relationship).
    - Results link to the CPQ admin page (`{platformUrl}/cadmin/field-expression/{id}` by default). The section is shown above **Custom code**.
    - If the API is unavailable (for example a tenant without CPQ), or an expression cannot be read, the collector reports `failed`/`partial`; the other collectors still return.
 

@@ -200,27 +200,29 @@ export class CongaClient {
   }
 
   // POST /api/search/v1/objects/FieldExpression/query — every CPQ Field Expression (active and inactive).
-  // Skip advances by the rows actually returned, so a server-side page cap cannot skip records.
+  // The response is a bare array. Only Id and Name are selected: everything else is read from the detail call.
+  // Sorted by Id (unique) so Skip paging cannot repeat or miss rows that share a ModifiedDate; Skip advances
+  // by the rows actually returned, and rows are de-duplicated by Id as a safety net.
   async listFieldExpressions() {
     const all = [];
+    const seen = new Set();
     const limit = 100;
+    let skip = 0;
     for (let page = 0; page < 200; page += 1) {
       const payload = await this.request('/api/search/v1/objects/FieldExpression/query', { includeTotalCount: true }, {
         method: 'POST',
-        body: {
-          ObjectName: 'FieldExpression',
-          Criteria: '',
-          Select: ['Id', 'Name', 'IsActive', 'IsModifiable', 'UpdateField', 'ModifiedDate'],
-          Skip: all.length,
-          Limit: limit,
-          Sort: { FieldName: 'ModifiedDate', OrderBy: 'Descending' }
-        }
+        body: { ObjectName: 'FieldExpression', Criteria: '', Select: ['Id', 'Name'], Skip: skip, Limit: limit, Sort: { FieldName: 'Id', OrderBy: 'Ascending' } }
       });
       const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data', 'Records', 'records', 'Items', 'items') ?? [];
       if (!Array.isArray(data)) throw new CongaApiError('Unexpected field expression query response shape', 502);
-      all.push(...data);
+      skip += data.length;
+      for (const row of data) {
+        const id = pick(row, 'Id', 'id');
+        if (!id || seen.has(id)) continue;
+        seen.add(id); all.push(row);
+      }
       const total = Array.isArray(payload) ? undefined : pick(payload, 'TotalCount', 'totalCount');
-      if (data.length === 0 || (typeof total === 'number' ? all.length >= total : data.length < limit)) break;
+      if (data.length === 0 || (typeof total === 'number' ? skip >= total : data.length < limit)) break;
       if (page === 199) throw new CongaApiError('Field expressions exceeded the 200-page safety limit', 502);
     }
     return all;
