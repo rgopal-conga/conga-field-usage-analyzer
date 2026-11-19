@@ -522,7 +522,7 @@ test('usage scan reads constraint rules, their conditions and actions, and toler
   assert.deepEqual(queries[0].body, { ObjectName: 'ConstraintRule', Criteria: '', Select: ['Id', 'Name', 'Type', 'IsActive'], Skip: 0, Limit: 100, Sort: { FieldName: 'Id', OrderBy: 'Ascending' } });
   assert.equal(result.coverage.constraintRulesScanned, 4);
   assert.deepEqual(result.constraintRules.map((item) => [item.ruleName, item.usage, item.confidence, item.active, item.conditions.map((c) => c.name), item.actions.length]), [['Rule 0', 'Condition', 'Exact', true, ['Rule 0 Condition 1'], 0]]);
-  assert.equal(result.constraintRules[0].viewUrl, `${upstreamUrl}/cadmin/constraint-rule/cr-0`);
+  assert.equal(result.constraintRules[0].viewUrl, `${upstreamUrl}/cadmin/constraint-rules/edit/cr-0`);
   assert.equal(result.constraintRules[0].conditions[0].snippet, '(TargetField equal to New)');
   const collector = result.coverage.collectors.find((item) => item.key === 'constraintRules');
   assert.deepEqual([collector.status, collector.matches], ['partial', 1]);

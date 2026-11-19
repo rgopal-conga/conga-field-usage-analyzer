@@ -112,7 +112,7 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
    - Conditions: `ConditionCriteria` (a JSON string) is parsed; every predicate `FieldName` is matched against the field with its `ObjectName` (green when it is the selected object; a right-hand-side field reference is orange). `ProductFieldA`–`D` are Product fields. Actions: `ActionCriteria` (same format) and `ActionExpression` (`Object.Field` green, bare name orange).
    - Product attributes: a predicate on an attribute object (e.g. `LineItemAttributeValue`) or `Attribute.`/`AttributeValue.` paths → green; the bare attribute name on another object → orange.
    - Picklist options, `exprStr`, `Message`, names and audit fields are never matches; `exprStr` is shown as the readable summary.
-   - Section below **Field expressions**: Constraint rule name (linked to `{platformUrl}/cadmin/constraint-rule/{id}`, override with `CONGA_CONSTRAINT_RULE_URL_TEMPLATE`), Is active, Type, Used in condition, Used in action (matching condition/action names, coloured green/orange, with their criteria).
+   - Section below **Field expressions**: Constraint rule name (linked to `{platformUrl}/cadmin/constraint-rules/edit/{id}`, override with `CONGA_CONSTRAINT_RULE_URL_TEMPLATE`), Is active, Type, Used in condition, Used in action (matching condition/action names, coloured green/orange, with their criteria).
    - A rule whose conditions or actions cannot be read marks the collector `partial`; a failing list call marks only this collector `failed`.
 
 5. **Custom code references**

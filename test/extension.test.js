@@ -126,7 +126,7 @@ test('the built extension core runs the full flow in-page against the tenant', a
   assert.deepEqual(scan.body.formulaDependencies.map((item) => item.fieldName), ['StatusLabel']);
   assert.deepEqual(scan.body.fieldExpressions.map((item) => [item.expressionName, item.usage, item.viewUrl]), [['Status filter', 'Condition', 'https://rls.congacloud.com/cadmin/field-expression/fe-1']]);
   assert.equal(scan.body.customCode.length, 1, 'ZIP fallback is decompressed in-page');
-  assert.deepEqual(scan.body.constraintRules.map((item) => [item.ruleName, item.usage, item.confidence, item.viewUrl]), [['Status rule', 'Condition', 'Exact', 'https://rls.congacloud.com/cadmin/constraint-rule/cr-1']]);
+  assert.deepEqual(scan.body.constraintRules.map((item) => [item.ruleName, item.usage, item.confidence, item.viewUrl]), [['Status rule', 'Condition', 'Exact', 'https://rls.congacloud.com/cadmin/constraint-rules/edit/cr-1']]);
 
   const attributes = await api.handle({ method: 'POST', pathname: '/api/platform/fields/search', body: { ...connection, objectName: 'Attribute', kind: 'attribute', query: 'speed' } });
   assert.deepEqual(attributes.body.items.map((item) => item.name), ['Internet_Speed_c']);
