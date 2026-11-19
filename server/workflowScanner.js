@@ -59,11 +59,28 @@ function propertyTargetsOtherObject(activity, workflowObject) {
   return related && related.toLowerCase() !== workflowObject.toLowerCase() ? related : null;
 }
 
-export function findFieldInWorkflow(definition, objectName, fieldName) {
+// Product attribute API names: `__c` and `_c` endings are the same attribute.
+export function attributeNameVariants(name) {
+  const base = String(name).replace(/__c$/i, '_c');
+  return [...new Set([name, base, /_c$/i.test(base) ? base.replace(/_c$/i, '__c') : base])];
+}
+
+// First pattern that matches `text`, or null.
+const firstMatch = (patterns, text) => patterns.find((pattern) => pattern.test(text)) ?? null;
+
+// attribute: true scans for the product attribute `fieldName`: Attribute.X / AttributeValue.X anywhere is Exact;
+// a Json Key/FieldName or the bare API name in any workflow is Probable (attributes are not tied to one object).
+export function findFieldInWorkflow(definition, objectName, fieldName, { attribute = false } = {}) {
   const workflowObject = String(pick(definition, 'objectName', 'ObjectName') ?? '');
-  const sameObject = workflowObject.toLowerCase() === objectName.toLowerCase();
-  const qualified = tokenPattern(`${objectName}.${fieldName}`);
-  const bare = tokenPattern(fieldName);
+  const names = attribute ? attributeNameVariants(fieldName) : [fieldName];
+  const sameObject = attribute || workflowObject.toLowerCase() === objectName.toLowerCase();
+  const qualifiers = attribute ? ['Attribute', 'AttributeValue'] : [objectName];
+  const qualifiedPatterns = qualifiers.flatMap((qualifier) => names.map((name) => tokenPattern(`${qualifier}.${name}`)));
+  const barePatterns = names.map((name) => tokenPattern(name));
+  const lowerNames = names.map((name) => name.toLowerCase());
+  const qualified = { test: (text) => Boolean(firstMatch(qualifiedPatterns, text)) };
+  const bare = { test: (text) => Boolean(firstMatch(barePatterns, text)) };
+  const snippetFor = (text) => snippetAround(text, firstMatch(qualifiedPatterns, text) ?? firstMatch(barePatterns, text) ?? barePatterns[0]);
   const matches = [];
   const seen = new Set();
 
@@ -78,9 +95,9 @@ export function findFieldInWorkflow(definition, objectName, fieldName) {
         if (typeof text !== 'string' || !text) continue;
         let confidence = null; let structured = false;
         if (qualified.test(text)) confidence = 'Exact';
-        else if (sameObject && !otherObject) {
+        else if (sameObject && (attribute || !otherObject)) {
           const keys = structuredFieldKeys(tryParseJson(text));
-          if (keys.some((key) => key.toLowerCase() === fieldName.toLowerCase())) { confidence = 'Exact'; structured = true; }
+          if (keys.some((key) => lowerNames.includes(key.toLowerCase()))) { confidence = attribute ? 'Probable' : 'Exact'; structured = true; }
           else if (bare.test(text)) confidence = 'Probable';
         }
         if (!confidence) continue;
@@ -96,7 +113,7 @@ export function findFieldInWorkflow(definition, objectName, fieldName) {
           syntax,
           usage: usageFor(propertyName, structured),
           confidence,
-          snippet: snippetAround(text, qualified.test(text) ? qualified : bare)
+          snippet: snippetFor(text)
         });
       }
     }
@@ -106,7 +123,7 @@ export function findFieldInWorkflow(definition, objectName, fieldName) {
     const text = typeof raw === 'string' ? raw : raw ? JSON.stringify(raw) : '';
     if (!text) continue;
     const confidence = qualified.test(text) ? 'Exact' : sameObject && bare.test(text) ? 'Probable' : null;
-    if (confidence) matches.push({ activityId: '', activityName: label, activityType: 'Definition', property: label, syntax: 'Json', usage: 'Variable', confidence, snippet: snippetAround(text, qualified.test(text) ? qualified : bare) });
+    if (confidence) matches.push({ activityId: '', activityName: label, activityType: 'Definition', property: label, syntax: 'Json', usage: 'Variable', confidence, snippet: snippetFor(text) });
   }
   return matches;
 }
@@ -119,14 +136,14 @@ async function mapWithConcurrency(items, limit, worker) {
   return results;
 }
 
-export async function scanWorkflows(client, objectName, fieldName) {
+export async function scanWorkflows(client, objectName, fieldName, { attribute = false } = {}) {
   const summaries = await client.listWorkflowDefinitions();
   const failures = [];
   const perWorkflow = await mapWithConcurrency(summaries, 5, async (summary) => {
     const definitionId = String(pick(summary, 'DefinitionId', 'definitionId') ?? pick(summary, 'Id', 'id') ?? '');
     try {
       const definition = await client.getWorkflowDefinition(definitionId);
-      return findFieldInWorkflow(definition, objectName, fieldName).map((match) => ({
+      return findFieldInWorkflow(definition, objectName, fieldName, { attribute }).map((match) => ({
         id: `workflow:${definitionId}:${match.activityId}:${match.property}:${match.syntax}`,
         recordId: definitionId,
         versionId: pick(definition, 'versionId', 'VersionId', 'id') ?? null,

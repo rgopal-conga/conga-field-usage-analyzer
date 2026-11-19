@@ -5,7 +5,7 @@ import { after, before, test } from 'node:test';
 import { createAppServer } from '../server/index.js';
 import { normalizePlatformUrl } from '../server/platformUrl.js';
 import { buildReferenceUrl, referenceLinkTemplates } from '../server/referenceLinks.js';
-import { findFieldInWorkflow } from '../server/workflowScanner.js';
+import { attributeNameVariants, findFieldInWorkflow } from '../server/workflowScanner.js';
 import { findFieldInFieldExpression } from '../server/fieldExpressionScanner.js';
 
 let upstream; let app; let upstreamUrl; let baseUrl;
@@ -39,8 +39,8 @@ const hooks = Array.from({ length: 202 }, (_, index) => index < 200 ? ({
 const workflowSummaries = Array.from({ length: 203 }, (_, index) => ({ Id: `wf-${index}`, DefinitionId: `wf-${index}`, Name: `Workflow${index}`, DisplayName: `Workflow ${index}`, ObjectName: index === 201 ? 'Object250' : 'OtherObject', WorkflowType: 'Standalone', IsLatest: true }));
 function workflowDefinition(definitionId) {
   const index = Number(definitionId.split('-')[1]);
-  const condition = index === 201 ? '( Object250.TargetField != "Done" )' : '( OtherObject.Status == "Open" )';
-  const updates = index === 201 ? '[{"Key":"TargetField","Value":"x"}]' : '[{"Key":"TargetField","Value":"x"}]';
+  const condition = index === 201 ? '( Object250.TargetField != "Done" )' : index === 150 ? '( $.AttributeValue.Internet_Speed__c == "25 Mbps" )' : '( OtherObject.Status == "Open" )';
+  const updates = index === 201 ? '[{"Key":"TargetField","Value":"x"}]' : index === 151 ? '[{"Key":"Internet_Speed_c","Value":"50 Mbps"}]' : '[{"Key":"TargetField","Value":"x"}]';
   return { definitionId, displayName: `Workflow ${index}`, objectName: index === 201 ? 'Object250' : 'OtherObject', workflowType: 'Standalone', triggerType: 'DataChange', isPublished: true, version: 1,
     activities: [
       { activityId: 'trigger', type: 'DataChangeWorkflowTriggerActivity', displayName: 'Start Workflow', properties: [{ name: 'WorkflowCondition', expressions: { Liquid: condition } }] },
@@ -410,7 +410,7 @@ test('field expression links default to the CPQ admin page and the section sits 
   assert.ok(html.indexOf('id="fieldexpression-section"') < html.indexOf('id="customcode-section"'));
 });
 
-test('product attributes are offered in object search, listed from Attribute records and scanned in Field Expressions', async () => {
+test('product attributes are offered in object search, listed from Attribute records and scanned in Field Expressions and workflows', async () => {
   const objectsResult = await (await post('/api/platform/objects/search', credentials({ query: 'attrib' }))).json();
   assert.deepEqual([objectsResult.items[0].name, objectsResult.items[0].label, objectsResult.items[0].kind], ['Attribute', 'Product Attributes', 'attribute']);
   const lateObject = await (await post('/api/platform/objects/search', credentials({ query: 'late' }))).json();
@@ -434,10 +434,28 @@ test('product attributes are offered in object search, listed from Attribute rec
   ]);
   assert.equal(result.fieldExpressions[0].conditionScope, 'Header');
   assert.equal(result.fieldExpressions[0].viewUrl, `${upstreamUrl}/cadmin/field-expression/fe-11`);
-  assert.deepEqual(result.coverage.collectors.map((item) => [item.key, item.status]), [['formulaDependencies', 'not applicable'], ['workflows', 'not applicable'], ['fieldExpressions', 'partial'], ['customCode', 'not applicable']]);
+  assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'customCode']);
+  assert.deepEqual(result.coverage.collectors.slice(0, 3).map((item) => item.status), ['not applicable', 'partial', 'partial']);
   assert.equal(result.coverage.attributesScanned, 150);
-  assert.deepEqual([result.formulaDependencies, result.workflows, result.customCode], [[], [], []]);
+  assert.equal(result.coverage.workflowsScanned, 203);
+  assert.deepEqual(result.formulaDependencies, []);
+  assert.deepEqual(result.workflows.map((item) => [item.recordId, item.usage, item.confidence]), [['wf-150', 'Condition', 'Exact'], ['wf-151', 'Field update', 'Probable']]);
 
   const missing = await post('/api/platform/usage-scan', credentials({ objectName: 'Attribute', kind: 'attribute', fieldName: 'Not_There_c' }));
   assert.equal(missing.status, 404);
+});
+
+test('workflow matcher in attribute mode: Attribute./AttributeValue. exact, key or bare API name probable, __c equals _c', () => {
+  assert.deepEqual(attributeNameVariants('Server_Name__c'), ['Server_Name__c', 'Server_Name_c']);
+  assert.deepEqual(attributeNameVariants('Server_Name_c'), ['Server_Name_c', 'Server_Name__c']);
+  const workflow = (condition, updates) => ({ objectName: 'Proposal', activities: [
+    { activityId: 'trigger', type: 'DataChangeWorkflowTriggerActivity', properties: [{ name: 'WorkflowCondition', expressions: { Liquid: condition } }] },
+    { activityId: 'update', type: 'UpdateObjectsActivity', properties: [{ name: 'UpdateType', expressions: { Literal: 'Related Object' } }, { name: 'RelatedObjectName', expressions: { Literal: 'LineItem' } }, { name: 'FieldsToUpdate', expressions: { Json: updates } }] }
+  ] });
+  const find = (definition, name) => findFieldInWorkflow(definition, 'Attribute', name, { attribute: true }).map((item) => [item.property, item.usage, item.confidence]);
+  assert.deepEqual(find(workflow('( LineItem.Attribute.RLM_Price__c > 10 )', '[]'), 'RLM_Price_c'), [['WorkflowCondition', 'Condition', 'Exact']]);
+  assert.deepEqual(find(workflow('( Status == "Open" )', '[{"Key":"RLM_Price_c","Value":"1"}]'), 'RLM_Price_c'), [['FieldsToUpdate', 'Field update', 'Probable']], 'any object; related-object updates included');
+  assert.deepEqual(find(workflow('( RLM_Price_c > 10 )', '[]'), 'RLM_Price_c'), [['WorkflowCondition', 'Condition', 'Probable']]);
+  assert.deepEqual(find(workflow('( Old_RLM_Price_c > 10 )', '[{"Key":"RLM_Price","Value":"1"}]'), 'RLM_Price_c'), [], 'partial names do not match');
+  assert.deepEqual(findFieldInWorkflow(workflow('( Proposal.RLM_Price_c > 10 )', '[]'), 'Proposal', 'RLM_Price_c').map((item) => item.confidence), ['Exact'], 'field mode unchanged');
 });

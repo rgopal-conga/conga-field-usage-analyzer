@@ -46,39 +46,66 @@ function hookConditionResults(hooks, objectName, fieldName) {
     .sort((left, right) => left.runsAs[0].name.localeCompare(right.runsAs[0].name));
 }
 
-// Product attributes are Attribute records, not schema fields, so they have their own scan: Field Expressions
-// match Attribute./AttributeValue. paths; formula dependencies do not apply.
+// Product attributes are Attribute records, not schema fields, so they have their own scan: Field Expressions,
+// workflows and custom code are matched on the attribute API name (Attribute./AttributeValue. paths are Exact);
+// formula dependencies do not apply.
+const listText = (items) => `${items.slice(0, 5).join(', ')}${items.length > 5 ? ', …' : ''}`;
 async function scanAttributeUsage(client, attributeName, { platformUrl, linkTemplates }) {
   if (typeof attributeName !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(attributeName)) throw new CongaApiError('Attribute name is invalid', 400);
   const attributes = await client.listAttributes();
   const selected = attributes.find((item) => item.name === attributeName);
   if (!selected) throw new CongaApiError('Selected attribute was not found', 404);
-  const fieldExpressionScan = await scanFieldExpressions(client, ATTRIBUTE_OBJECT.name, attributeName, { attribute: { name: selected.name, label: selected.label } }).catch((error) => ({ error }));
+  const objectName = ATTRIBUTE_OBJECT.name;
+
+  let hookError = null;
+  const hooksPromise = client.listServiceHooks().catch((error) => { hookError = error; return []; });
+  const [workflowScan, fieldExpressionScan, customCodeScan, hooks] = await Promise.all([
+    scanWorkflows(client, objectName, attributeName, { attribute: true }).catch((error) => ({ error })),
+    scanFieldExpressions(client, objectName, attributeName, { attribute: { name: selected.name, label: selected.label } }).catch((error) => ({ error })),
+    hooksPromise.then((list) => scanCustomCode(client, objectName, attributeName, { hooks: list, attribute: true })).catch((error) => ({ error })),
+    hooksPromise
+  ]);
+
+  const workflowResults = workflowScan.error ? [] : workflowScan.results;
+  for (const item of workflowResults) item.viewUrl = buildReferenceUrl(linkTemplates.workflow, { platformUrl, id: item.recordId, objectName: item.objectName, name: item.workflowName });
   const fieldExpressionResults = fieldExpressionScan.error ? [] : fieldExpressionScan.results;
-  for (const item of fieldExpressionResults) {
-    item.viewUrl = buildReferenceUrl(linkTemplates.fieldExpression, { platformUrl, id: item.recordId, objectName: ATTRIBUTE_OBJECT.name, fieldName: attributeName, name: item.expressionName });
-  }
+  for (const item of fieldExpressionResults) item.viewUrl = buildReferenceUrl(linkTemplates.fieldExpression, { platformUrl, id: item.recordId, objectName, fieldName: attributeName, name: item.expressionName });
+  const customCodeResults = customCodeScan.error ? [] : customCodeScan.results;
+  for (const item of customCodeResults) item.viewUrl = buildReferenceUrl(linkTemplates.customCode, { platformUrl, id: item.projectName, objectName, fieldName: attributeName, name: item.projectName });
+
+  const status = (scan) => (scan.error ? 'failed' : scan.failures.length ? 'partial' : 'complete');
   const limitations = [];
-  if (fieldExpressionScan.error) limitations.push(`Field expression scan failed: ${fieldExpressionScan.error.message}.`);
-  else if (fieldExpressionScan.failures.length) limitations.push(`${fieldExpressionScan.failures.length} field expression(s) could not be read and were skipped: ${fieldExpressionScan.failures.slice(0, 5).join(', ')}${fieldExpressionScan.failures.length > 5 ? ', …' : ''}.`);
-  limitations.push('Product attributes are checked in Field Expressions only. Formula dependencies do not apply; workflows and custom code are not yet checked for attributes.');
-  const notApplicable = (key, label) => ({ key, label, status: 'not applicable', matches: 0 });
+  if (workflowScan.error) limitations.push(`Workflow scan failed: ${workflowScan.error.message}. The other results are still complete.`);
+  else if (workflowScan.failures.length) limitations.push(`${workflowScan.failures.length} workflow definition(s) could not be read and were skipped: ${listText(workflowScan.failures)}.`);
+  if (fieldExpressionScan.error) limitations.push(`Field expression scan failed: ${fieldExpressionScan.error.message}. The other results are still complete.`);
+  else if (fieldExpressionScan.failures.length) limitations.push(`${fieldExpressionScan.failures.length} field expression(s) could not be read and were skipped: ${listText(fieldExpressionScan.failures)}.`);
+  if (hookError) limitations.push(`Service Hook rules could not be read (${hookError.message}); "Runs as" may omit Service Hooks.`);
+  if (customCodeScan.error) limitations.push(`Custom code scan failed: ${customCodeScan.error.message}. The other results are still complete.`);
+  else {
+    if (customCodeScan.failures.length) limitations.push(`${customCodeScan.failures.length} custom code project(s) could not be read and were skipped: ${listText(customCodeScan.failures)}.`);
+    limitations.push(...customCodeScan.notes);
+  }
+  limitations.push('Product attributes are matched on their API name (Attribute./AttributeValue. paths are exact). Formula dependencies do not apply.');
+
   return {
-    field: { objectName: ATTRIBUTE_OBJECT.name, fieldName: selected.name, label: selected.label, dataType: selected.type, kind: 'attribute' },
+    field: { objectName, fieldName: selected.name, label: selected.label, dataType: selected.type, kind: 'attribute' },
     formulaDependencies: [],
-    workflows: [],
+    workflows: workflowResults,
     fieldExpressions: fieldExpressionResults,
-    customCode: [],
+    customCode: customCodeResults,
     coverage: {
-      objectsScanned: 0, fieldsScanned: 0, workflowsScanned: 0,
+      objectsScanned: 0, fieldsScanned: 0,
+      workflowsScanned: workflowScan.error ? 0 : workflowScan.workflowsScanned,
       fieldExpressionsScanned: fieldExpressionScan.error ? 0 : fieldExpressionScan.fieldExpressionsScanned,
-      customCodeProjectsScanned: 0, customCodeFilesScanned: 0, serviceHooksScanned: 0,
+      customCodeProjectsScanned: customCodeScan.error ? 0 : customCodeScan.projectsScanned,
+      customCodeFilesScanned: customCodeScan.error ? 0 : customCodeScan.filesScanned,
+      serviceHooksScanned: hooks.length,
       attributesScanned: attributes.length,
       collectors: [
-        notApplicable('formulaDependencies', 'Formula dependencies (all objects)'),
-        notApplicable('workflows', 'Workflow references'),
-        { key: 'fieldExpressions', label: 'Field expression references', status: fieldExpressionScan.error ? 'failed' : fieldExpressionScan.failures.length ? 'partial' : 'complete', matches: fieldExpressionResults.length },
-        notApplicable('customCode', 'Custom code references')
+        { key: 'formulaDependencies', label: 'Formula dependencies (all objects)', status: 'not applicable', matches: 0 },
+        { key: 'workflows', label: 'Workflow references', status: status(workflowScan), matches: workflowResults.length },
+        { key: 'fieldExpressions', label: 'Field expression references', status: status(fieldExpressionScan), matches: fieldExpressionResults.length },
+        { key: 'customCode', label: 'Custom code references', status: status(customCodeScan), matches: customCodeResults.length }
       ]
     },
     limitations

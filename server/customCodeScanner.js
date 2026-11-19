@@ -12,6 +12,7 @@
 // Source is analysed as text: comments are ignored, string literals and identifiers are matched as whole tokens.
 // Nothing is compiled or executed.
 import { readZipTextEntries } from './zipReader.js';
+import { attributeNameVariants } from './workflowScanner.js';
 
 function pick(object, ...names) {
   for (const name of names) if (object && object[name] !== undefined) return object[name];
@@ -144,43 +145,51 @@ function snippetFor(lines, line) {
 
 // Scans one source file. `context` says whether the selected object is evident from the file, the project
 // or the way the project is wired (e.g. a Service Hook on the selected object).
-export function findFieldInSource(source, objectName, fieldName, { projectHasObject = false, wiredToObject = false } = {}) {
+// attribute: true scans for the product attribute `fieldName` (objectName is ignored): a string "Attribute.X" /
+// "AttributeValue.X" is Exact, a string equal to the API name is Probable, the name inside a longer string or as
+// an identifier is Possible. `__c` and `_c` endings are the same attribute.
+export function findFieldInSource(source, objectName, fieldName, { projectHasObject = false, wiredToObject = false, attribute = false } = {}) {
   const text = String(source ?? '');
   if (!text || text.length > MAX_FILE_CHARS) return { matches: [], fileHasObject: false };
+  const names = attribute ? attributeNameVariants(fieldName) : [fieldName];
+  const lowerNames = names.map(lower);
   const lowerText = text.toLowerCase();
-  if (!lowerText.includes(lower(fieldName))) return { matches: [], fileHasObject: wordPattern(objectName).test(text) };
+  if (!lowerNames.some((name) => lowerText.includes(name))) return { matches: [], fileHasObject: attribute ? false : wordPattern(objectName).test(text) };
   const { code, strings } = lexCSharp(text);
   const starts = lineStarts(text);
   const lines = text.split('\n');
   const decl = declarations(code, starts);
-  const qualified = wordPattern(`${objectName}.${fieldName}`);
-  const bare = wordPattern(fieldName);
+  const qualifiedPatterns = (attribute ? ['Attribute', 'AttributeValue'] : [objectName]).flatMap((qualifier) => names.map((name) => wordPattern(`${qualifier}.${name}`)));
+  const barePatterns = names.map((name) => wordPattern(name));
   const objectToken = wordPattern(objectName);
-  const fileHasObject = objectToken.test(code) || strings.some((item) => objectToken.test(item.value));
+  const fileHasObject = !attribute && (objectToken.test(code) || strings.some((item) => objectToken.test(item.value)));
   const hasContext = fileHasObject || projectHasObject || wiredToObject;
   const raw = [];
 
   for (const literal of strings) {
     const value = literal.value;
     let kind = null;
-    if (qualified.test(value)) kind = 'qualified';
-    else if (lower(value.trim()) === lower(fieldName)) kind = 'literal-exact';
-    else if (bare.test(value)) kind = 'literal-contains';
+    if (qualifiedPatterns.some((pattern) => pattern.test(value))) kind = 'qualified';
+    else if (lowerNames.includes(lower(value.trim()))) kind = 'literal-exact';
+    else if (barePatterns.some((pattern) => pattern.test(value))) kind = 'literal-contains';
     if (!kind) continue;
     let confidence;
     if (kind === 'qualified') confidence = 'Exact';
+    else if (attribute) confidence = kind === 'literal-exact' ? 'Probable' : 'Possible';
     else if (kind === 'literal-exact') confidence = (fileHasObject || wiredToObject) ? 'Exact' : projectHasObject ? 'Probable' : 'Possible';
     else confidence = hasContext ? 'Probable' : 'Possible';
     raw.push({ kind, offset: literal.offset, length: value.length + 2, confidence, literalValue: value });
   }
 
-  if (hasContext) {
-    const identifier = new RegExp(`(^|[^A-Za-z0-9_"])(${escapeRegex(fieldName)})(?=$|[^A-Za-z0-9_"])`, 'g');
-    for (const match of code.matchAll(identifier)) {
-      const offset = match.index + match[1].length;
-      const before = code.slice(Math.max(0, offset - 40), offset);
-      if (/\b(?:class|namespace|using)\s+[A-Za-z0-9_.]*$/.test(before)) continue;
-      raw.push({ kind: 'identifier', offset, length: fieldName.length, confidence: 'Probable' });
+  if (hasContext || attribute) {
+    for (const name of names) {
+      const identifier = new RegExp(`(^|[^A-Za-z0-9_"])(${escapeRegex(name)})(?=$|[^A-Za-z0-9_"])`, 'g');
+      for (const match of code.matchAll(identifier)) {
+        const offset = match.index + match[1].length;
+        const before = code.slice(Math.max(0, offset - 40), offset);
+        if (/\b(?:class|namespace|using)\s+[A-Za-z0-9_.]*$/.test(before)) continue;
+        raw.push({ kind: 'identifier', offset, length: name.length, confidence: attribute ? 'Possible' : 'Probable' });
+      }
     }
   }
 
@@ -282,7 +291,8 @@ async function projectDocuments(client, summary) {
   return { name, project, files, source };
 }
 
-export async function scanCustomCode(client, objectName, fieldName, { hooks = [] } = {}) {
+// attribute: true scans for a product attribute (see findFieldInSource); "Runs as" wiring is unchanged.
+export async function scanCustomCode(client, objectName, fieldName, { hooks = [], attribute = false } = {}) {
   const projects = await client.listCustomCodeProjects();
   const notes = [];
   const [callbacks, apiRoutes] = await Promise.all([
@@ -301,13 +311,13 @@ export async function scanCustomCode(client, objectName, fieldName, { hooks = []
       filesScanned += files.length;
       linesScanned += files.reduce((sum, file) => sum + file.text.split('\n').length, 0);
       const projectWiring = wiring.get(lower(name)) ?? [];
-      const projectHasObject = files.some((file) => wordPattern(objectName).test(file.text));
+      const projectHasObject = !attribute && files.some((file) => wordPattern(objectName).test(file.text));
       const results = [];
       for (const file of files) {
         const fileClasses = [...String(file.text).matchAll(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => lower(match[1]));
         const fileWiring = projectWiring.filter((entry) => !entry.className || fileClasses.includes(entry.className));
-        const wiredToObject = fileWiring.some((entry) => lower(entry.objectName) === lower(objectName));
-        const { matches } = findFieldInSource(file.text, objectName, fieldName, { projectHasObject, wiredToObject });
+        const wiredToObject = !attribute && fileWiring.some((entry) => lower(entry.objectName) === lower(objectName));
+        const { matches } = findFieldInSource(file.text, objectName, fieldName, { projectHasObject, wiredToObject, attribute });
         for (const match of matches) {
           const runsAs = projectWiring.filter((entry) => !entry.className || entry.className === lower(match.className));
           results.push({

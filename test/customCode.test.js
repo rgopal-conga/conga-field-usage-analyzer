@@ -245,3 +245,26 @@ test('zip reader extracts text entries and skips binaries', async () => {
   const entries = await readZipTextEntries(makeZip({ 'a/One.cs': 'class One {}', 'a/bin/x.dll': 'MZ\u0000' }));
   assert.deepEqual(entries, [{ path: 'a/One.cs', text: 'class One {}' }]);
 });
+
+test('custom code in attribute mode: "Attribute.X" exact, exact API-name string probable, the rest possible', () => {
+  const source = [
+    'public class AttributeHandler {',
+    '  public void Run(dynamic item) {',
+    '    var a = item["AttributeValue.Internet_Speed__c"];',
+    '    var b = item.GetAttribute("Internet_Speed_c");',
+    '    var c = "select Id from LineItem where Internet_Speed_c != null";',
+    '    var d = item.Attribute.Internet_Speed_c;',
+    '    var e = "Old_Internet_Speed_c";',
+    '  }',
+    '}'
+  ].join('\n');
+  const { matches } = findFieldInSource(source, 'Attribute', 'Internet_Speed_c', { attribute: true });
+  assert.deepEqual(matches.map((item) => [item.line, item.confidence, item.className, item.methodName]), [
+    [3, 'Exact', 'AttributeHandler', 'Run'],
+    [4, 'Probable', 'AttributeHandler', 'Run'],
+    [5, 'Possible', 'AttributeHandler', 'Run'],
+    [6, 'Possible', 'AttributeHandler', 'Run']
+  ]);
+  assert.equal(matches.find((item) => item.line === 4).access, 'Read');
+  assert.deepEqual(findFieldInSource('var x = "Attribute.Internet_Speed_c";', 'LineItem', 'Internet_Speed_c').matches.map((item) => item.confidence), ['Possible'], 'field mode is unchanged');
+});
