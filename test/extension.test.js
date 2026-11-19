@@ -90,6 +90,8 @@ function tenantFetch() {
     if (pathname === '/api/search/v1/objects/ConstraintRule/query') return json({ Success: true, RecordCount: 1, Data: [{ Id: 'cr-1', Name: 'Status rule', Type: 'Validation', IsActive: true }], StatusCode: 'OK' });
     if (pathname === '/api/revenue-admin/v1/constraint-rules/cr-1/conditions') return json([{ Id: 'c1', Name: 'Status rule Condition 1', ConditionCriteria: JSON.stringify({ ObjectName: 'Agreement', filter: { predicates: [{ FieldName: 'Status', ObjectName: 'Agreement' }] }, exprStr: '(Status equal to Active)' }) }]);
     if (pathname === '/api/revenue-admin/v1/constraint-rules/cr-1/actions') return json([]);
+    if (pathname === '/api/search/v1/objects/AttributeConstraintRule/query') return json({ Success: true, RecordCount: 1, Data: [{ Id: 'acr-1', Name: 'Ram Test', RuleType: 'Inclusion', IsActive: false }], StatusCode: 'OK', HasMoreRecords: false });
+    if (pathname === '/api/revenue-admin/v1/attribute-constraint-rules/acr-1/entries') return json([{ Id: 'e1', Name: 'Ram Test Entry 1', ConditionAttributes: [{ Name: 'Internet_Speed_c', Operator: 'equal to', Type: 'Discrete', Value: '10 Mbps' }], ActionProduct: { Id: 'p', Name: 'Ram Standalone 2' }, ActionIntent: 'Auto Include', TargetFields: null, Sequence: 1 }]);
     if (pathname === '/api/search/v1/objects/Attribute/query') return json([{ Id: 'at-1', Name: 'Internet_Speed_c', DisplayName: 'Internet Speed', Type: 'Picklist' }]);
     if (pathname === '/api/revenue-admin/v1/field-expressions/fe-2') return json({ Id: 'fe-2', Name: 'Speed', IsActive: true, ExpressionType: 'Field Update', UpdateObject: 'LineItem', SourceObject: 'LineItem', UpdateField: 'Attribute.Internet_Speed_c', ConditionScope: 'Product', Product: { Id: 'p', Name: 'Internet Service' }, Expression: "'25 Mbps'" });
     if (pathname === '/api/revenue-admin/v1/field-expressions/fe-1') return json({ Id: 'fe-1', Name: 'Status filter', IsActive: true, ExpressionType: 'Field Update', EvaluationContext: 'Record Update', UpdateObject: 'Agreement', SourceObject: 'Agreement', UpdateField: 'Stage', ConditionExpression: '$.Status == "Active"', Expression: "'Open'" });
@@ -132,6 +134,7 @@ test('the built extension core runs the full flow in-page against the tenant', a
   assert.deepEqual(attributes.body.items.map((item) => item.name), ['Internet_Speed_c']);
   const attributeScan = await api.handle({ method: 'POST', pathname: '/api/platform/usage-scan', body: { ...connection, objectName: 'Attribute', kind: 'attribute', fieldName: 'Internet_Speed_c' } });
   assert.deepEqual(attributeScan.body.fieldExpressions.map((item) => [item.expressionName, item.usage, item.confidence]), [['Speed', 'Field update', 'Exact']]);
+  assert.deepEqual(attributeScan.body.attributeConstraintRules.map((item) => [item.ruleName, item.usage, item.confidence, item.viewUrl]), [['Ram Test', 'Condition', 'Exact', 'https://rls.congacloud.com/cadmin/attribute-based-constraint-rules/edit/acr-1']]);
   assert.equal(scan.body.customCode[0].confidence, 'Exact');
   assert.equal(scan.body.customCode[0].viewUrl, 'https://rls.congacloud.com/cc/ZipProject');
   assert.ok(tenant.seen.every((call) => call.auth === 'Bearer test-token' && call.redirect === 'error'));

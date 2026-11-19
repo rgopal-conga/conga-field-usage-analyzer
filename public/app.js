@@ -159,11 +159,12 @@ function renderUsage(result) {
   const fieldExpressions = result.fieldExpressions ?? [];
   const customCode = result.customCode ?? [];
   const constraintRules = result.constraintRules ?? [];
-  const total = result.formulaDependencies.length + workflows.length + fieldExpressions.length + constraintRules.length + customCode.length;
+  const attributeRules = result.attributeConstraintRules ?? [];
+  const total = result.formulaDependencies.length + workflows.length + fieldExpressions.length + constraintRules.length + attributeRules.length + customCode.length;
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
     ...result.coverage.collectors.map((item) => item.status === 'not applicable' ? `${item.label}: not applicable to product attributes` : `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    result.field.kind === 'attribute' ? `Scanned: ${result.coverage.attributesScanned ?? 0} product attributes, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)` : `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
+    result.field.kind === 'attribute' ? `Scanned: ${result.coverage.attributesScanned ?? 0} product attributes, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.attributeConstraintRulesScanned ?? 0} attribute-based constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)` : `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.attributeConstraintRulesScanned ?? 0} attribute-based constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#formula-section').innerHTML = usageSection('Formula dependencies', result.formulaDependencies.length, 'No formula dependencies found',
@@ -181,6 +182,8 @@ function renderUsage(result) {
       fieldExpressions.map(fieldExpressionRow)));
   $('#constraintrule-section').innerHTML = usageSection('Constraint rules', constraintRules.length, 'No constraint rule references found',
     fieldExpressionLegend + table(['Constraint rule name', 'Is active', 'Type', 'Used in condition', 'Used in action'], constraintRules.map(constraintRuleRow)));
+  $('#attributerule-section').innerHTML = usageSection('Attribute-based constraint rules', attributeRules.length, 'No attribute-based constraint rule references found',
+    fieldExpressionLegend + table(['Attribute-based constraint rule name', 'Is active', 'Type', 'Used in condition', 'Used in action'], attributeRules.map(constraintRuleRow)));
   renderCustomCode(customCode);
 }
 // One Constraint Rule row: each matching condition/action is listed by name with its criteria, coloured by match.

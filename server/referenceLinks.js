@@ -12,6 +12,7 @@ export function referenceLinkTemplates(env = globalThis.process?.env ?? {}) {
     workflow: clean(env.CONGA_WORKFLOW_URL_TEMPLATE) ?? '{platformUrl}/workflow/{id}/',
     fieldExpression: clean(env.CONGA_FIELD_EXPRESSION_URL_TEMPLATE) ?? '{platformUrl}/cadmin/field-expression/{id}',
     constraintRule: clean(env.CONGA_CONSTRAINT_RULE_URL_TEMPLATE) ?? '{platformUrl}/cadmin/constraint-rules/edit/{id}',
+    attributeConstraintRule: clean(env.CONGA_ATTRIBUTE_CONSTRAINT_RULE_URL_TEMPLATE) ?? '{platformUrl}/cadmin/attribute-based-constraint-rules/edit/{id}',
     customCode: clean(env.CONGA_CUSTOM_CODE_URL_TEMPLATE)
   };
 }

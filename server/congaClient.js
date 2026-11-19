@@ -256,6 +256,17 @@ export class CongaClient {
     return this.queryAllRecords('ConstraintRule', ['Id', 'Name', 'Type', 'IsActive'], 'constraint rule');
   }
 
+  // Every Attribute-Based Constraint Rule (active and inactive): Id, Name, RuleType, IsActive. Entries are read per rule.
+  async listAttributeConstraintRules() {
+    return this.queryAllRecords('AttributeConstraintRule', ['Id', 'Name', 'RuleType', 'IsActive'], 'attribute-based constraint rule');
+  }
+
+  // GET /api/revenue-admin/v1/attribute-constraint-rules/{id}/entries — bare array of entries (ConditionAttributes, TargetFields).
+  async getAttributeConstraintRuleEntries(ruleId) {
+    CongaClient.assertRecordId(ruleId, 'Attribute-based constraint rule');
+    return this.listPayload(await this.request(`/api/revenue-admin/v1/attribute-constraint-rules/${encodeURIComponent(ruleId)}/entries`), 'attribute-based constraint rule entry');
+  }
+
   static assertRecordId(id, label) {
     if (typeof id !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(id)) throw new CongaApiError(`${label} id is invalid`, 400);
   }
