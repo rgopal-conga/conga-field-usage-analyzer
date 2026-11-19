@@ -258,9 +258,8 @@ function renderCustomCode(items) {
     '<span class="table-search-count muted"></span></div>';
   const empty = '<div class="table-search-empty muted hidden">No results match your filters.</div>';
   $('#customcode-section').innerHTML = usageSection('Custom code', items.length, 'No custom code references found', controls +
-    table(['Project / file', 'Class · method', 'Callback', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
+    table(['Project / file', 'Callback', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
       customCodeLocation(item),
-      escapeHtml([item.className, item.methodName].filter(Boolean).join(' · ') || '—'),
       (item.callbacks ?? []).map((entry) => `<div${entry.fullName ? ` title="${escapeHtml(entry.fullName)}"` : ''}>${escapeHtml(entry.name)}</div>`).join(''),
       escapeHtml(item.access),
       confidenceBadge(item.confidence),

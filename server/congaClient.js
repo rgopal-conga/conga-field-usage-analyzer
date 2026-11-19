@@ -377,13 +377,34 @@ export class CongaClient {
     return this.requestBinary(`/api/extensibility/v1/customcode/${encodeURIComponent(projectName)}/download`);
   }
 
-  // GET /api/extensibility/v1/callbacks/modules/Revenue — Revenue callback contracts and the project/class mapped to each
-  // ({ Success, Data: [{ CallbackName, CallbackShortName, CallbackDisplayName, CallbackCategoryName, CustomCodeMapping: { ProjectName, ClassName } }] }).
-  async listCallbackContracts() {
-    const payload = await this.request('/api/extensibility/v1/callbacks/modules/Revenue');
+  // GET /api/extensibility/v1/callbacks/modules — callback module names ({ Success, Data: ['Revenue', 'Approvals', 'Contracts'] }).
+  async listCallbackModules() {
+    const payload = await this.request('/api/extensibility/v1/callbacks/modules');
     const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data') ?? [];
-    if (!Array.isArray(data)) throw new CongaApiError('Unexpected callback response shape', 502);
+    if (!Array.isArray(data)) throw new CongaApiError('Unexpected callback module response shape', 502);
+    return [...new Set(data.filter((name) => typeof name === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(name)))];
+  }
+
+  // GET /api/extensibility/v1/callbacks/modules/{module} — that module's callback contracts and the project/class mapped to each
+  // ({ Success, Data: [{ CallbackName, CallbackShortName, CallbackDisplayName, CallbackCategoryName, CustomCodeMapping: { ProjectName, ClassName } }] }).
+  async listModuleCallbacks(moduleName) {
+    if (typeof moduleName !== 'string' || !/^[A-Za-z0-9_.-]{1,100}$/.test(moduleName)) throw new CongaApiError('Callback module name is invalid', 400);
+    const payload = await this.request(`/api/extensibility/v1/callbacks/modules/${encodeURIComponent(moduleName)}`);
+    const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data') ?? [];
+    if (!Array.isArray(data)) throw new CongaApiError(`Unexpected ${moduleName} callback response shape`, 502);
     return data;
+  }
+
+  // Callback contracts of every module. A module that cannot be read is reported in failedModules; the rest still load.
+  async listCallbackContracts() {
+    const modules = await this.listCallbackModules();
+    const settled = await Promise.allSettled(modules.map((name) => this.listModuleCallbacks(name)));
+    const contracts = []; const failedModules = [];
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') contracts.push(...result.value.map((item) => ({ ModuleName: modules[index], ...item })));
+      else failedModules.push(`${modules[index]} (${result.reason?.message ?? 'failed'})`);
+    });
+    return { contracts, modules, failedModules };
   }
 
   // GET /api/extensibility/v1/customcode/api-resource and .../{name}/uri-entries — Custom API routes mapped to project methods.

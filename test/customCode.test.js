@@ -117,7 +117,12 @@ before(async () => {
       if (name === 'Broken') return json(response, 500, { Message: 'Project storage unavailable' });
       if (projects[name]) return json(response, 200, { Success: true, Data: projects[name] });
     }
-    // Live shape of GET /api/extensibility/v1/callbacks/modules/Revenue.
+    // Live shapes of GET /api/extensibility/v1/callbacks/modules and .../modules/{module}. Contracts fails to load.
+    if (url.pathname === '/api/extensibility/v1/callbacks/modules') return json(response, 200, { Success: true, Data: ['Revenue', 'Approvals', 'Contracts'], StatusCode: 'OK' });
+    if (url.pathname === '/api/extensibility/v1/callbacks/modules/Contracts') return json(response, 500, { Message: 'Module unavailable' });
+    if (url.pathname === '/api/extensibility/v1/callbacks/modules/Approvals') return json(response, 200, { Success: true, Data: [
+      { CallbackName: 'Conga.Approvals.Callback.IApprovalCallback', CallbackShortName: 'IApprovalCallback', CallbackDisplayName: null, CallbackCategoryName: 'Approvals', CustomCodeMapping: { ProjectName: 'PricingCallbacks', ClassName: 'PricingCallbacks.AfterPricing' } }
+    ], StatusCode: 'OK' });
     if (url.pathname === '/api/extensibility/v1/callbacks/modules/Revenue') return json(response, 200, { Success: true, Data: [
       { CallbackName: 'Conga.Revenue.Common.Callback.IAssetCallback', CallbackShortName: 'IAssetCallback', CallbackDescription: null, CallbackDisplayName: null, CallbackCategoryName: 'Revenue', CustomCodeMapping: { ProjectName: null, ClassName: null } },
       { CallbackName: 'Conga.Revenue.Common.Callback.IPricingTotallingCallback', CallbackShortName: 'IPricingTotallingCallback', CallbackDescription: null, CallbackDisplayName: null, CallbackCategoryName: 'Revenue', CustomCodeMapping: { ProjectName: 'PricingCallbacks', ClassName: 'PricingCallbacks.AfterPricing' } },
@@ -161,8 +166,9 @@ test('custom code scan finds reads and writes across hooks, callbacks and Custom
   assert.deepEqual(hook.runsAs.map((entry) => [entry.type, entry.name, entry.objectName]), [['Service Hook', 'AgreementStatusHook', 'Agreement']]);
   assert.equal(hook.viewUrl, `${upstreamUrl}/admin/custom-code/AgreementHooks`);
   const callback = result.customCode.find((item) => item.projectName === 'PricingCallbacks');
-  assert.deepEqual(callback.callbacks, [{ name: 'IPricingTotallingCallback', fullName: 'Conga.Revenue.Common.Callback.IPricingTotallingCallback' }], 'only the callback mapped to this class');
+  assert.deepEqual(callback.callbacks.map((entry) => entry.name), ['IPricingTotallingCallback', 'IApprovalCallback'], 'only callbacks mapped to this class, from every module');
   assert.deepEqual(callback.runsAs, [], 'callbacks have their own column');
+  assert.ok(result.limitations.some((text) => /Callbacks of 1 module\(s\) could not be read: Contracts/.test(text)));
   assert.deepEqual(hook.callbacks, []);
   const api = result.customCode.find((item) => item.projectName === 'ApiProject');
   assert.equal(api.source, 'Project download'); assert.equal(api.filePath, 'ApiProject/RenewalController.cs');
