@@ -1,4 +1,4 @@
-import { CongaApiError } from './congaClient.js';
+import { ATTRIBUTE_OBJECT, CongaApiError } from './congaClient.js';
 import { buildReferenceUrl } from './referenceLinks.js';
 import { scanWorkflows } from './workflowScanner.js';
 import { scanFieldExpressions } from './fieldExpressionScanner.js';
@@ -46,7 +46,47 @@ function hookConditionResults(hooks, objectName, fieldName) {
     .sort((left, right) => left.runsAs[0].name.localeCompare(right.runsAs[0].name));
 }
 
-export async function scanFieldUsage(client, objectName, fieldName, { platformUrl = null, linkTemplates = {} } = {}) {
+// Product attributes are Attribute records, not schema fields, so they have their own scan: Field Expressions
+// match Attribute./AttributeValue. paths; formula dependencies do not apply.
+async function scanAttributeUsage(client, attributeName, { platformUrl, linkTemplates }) {
+  if (typeof attributeName !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(attributeName)) throw new CongaApiError('Attribute name is invalid', 400);
+  const attributes = await client.listAttributes();
+  const selected = attributes.find((item) => item.name === attributeName);
+  if (!selected) throw new CongaApiError('Selected attribute was not found', 404);
+  const fieldExpressionScan = await scanFieldExpressions(client, ATTRIBUTE_OBJECT.name, attributeName, { attribute: { name: selected.name, label: selected.label } }).catch((error) => ({ error }));
+  const fieldExpressionResults = fieldExpressionScan.error ? [] : fieldExpressionScan.results;
+  for (const item of fieldExpressionResults) {
+    item.viewUrl = buildReferenceUrl(linkTemplates.fieldExpression, { platformUrl, id: item.recordId, objectName: ATTRIBUTE_OBJECT.name, fieldName: attributeName, name: item.expressionName });
+  }
+  const limitations = [];
+  if (fieldExpressionScan.error) limitations.push(`Field expression scan failed: ${fieldExpressionScan.error.message}.`);
+  else if (fieldExpressionScan.failures.length) limitations.push(`${fieldExpressionScan.failures.length} field expression(s) could not be read and were skipped: ${fieldExpressionScan.failures.slice(0, 5).join(', ')}${fieldExpressionScan.failures.length > 5 ? ', …' : ''}.`);
+  limitations.push('Product attributes are checked in Field Expressions only. Formula dependencies do not apply; workflows and custom code are not yet checked for attributes.');
+  const notApplicable = (key, label) => ({ key, label, status: 'not applicable', matches: 0 });
+  return {
+    field: { objectName: ATTRIBUTE_OBJECT.name, fieldName: selected.name, label: selected.label, dataType: selected.type, kind: 'attribute' },
+    formulaDependencies: [],
+    workflows: [],
+    fieldExpressions: fieldExpressionResults,
+    customCode: [],
+    coverage: {
+      objectsScanned: 0, fieldsScanned: 0, workflowsScanned: 0,
+      fieldExpressionsScanned: fieldExpressionScan.error ? 0 : fieldExpressionScan.fieldExpressionsScanned,
+      customCodeProjectsScanned: 0, customCodeFilesScanned: 0, serviceHooksScanned: 0,
+      attributesScanned: attributes.length,
+      collectors: [
+        notApplicable('formulaDependencies', 'Formula dependencies (all objects)'),
+        notApplicable('workflows', 'Workflow references'),
+        { key: 'fieldExpressions', label: 'Field expression references', status: fieldExpressionScan.error ? 'failed' : fieldExpressionScan.failures.length ? 'partial' : 'complete', matches: fieldExpressionResults.length },
+        notApplicable('customCode', 'Custom code references')
+      ]
+    },
+    limitations
+  };
+}
+
+export async function scanFieldUsage(client, objectName, fieldName, { platformUrl = null, linkTemplates = {}, kind = 'field' } = {}) {
+  if (kind === 'attribute') return scanAttributeUsage(client, fieldName, { platformUrl, linkTemplates });
   if (typeof objectName !== 'string' || typeof fieldName !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(objectName) || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(fieldName)) {
     throw new CongaApiError('Object or field name is invalid', 400);
   }

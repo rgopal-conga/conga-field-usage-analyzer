@@ -24,6 +24,22 @@ function upstreamMessage(payload, fallback) {
     pick(payload?.Errors?.[0], 'Message', 'message') || fallback;
 }
 
+// Filters by query (any of the item's texts), puts prefix matches first, then sorts by label and name.
+function rankedMatches(items, query, limit, texts) {
+  const normalizedQuery = String(query).trim().toLowerCase();
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const matches = items.filter((item) => !normalizedQuery || texts(item).some((text) => String(text).toLowerCase().includes(normalizedQuery)));
+  matches.sort((left, right) => {
+    const leftStarts = left.label.toLowerCase().startsWith(normalizedQuery) || left.name.toLowerCase().startsWith(normalizedQuery);
+    const rightStarts = right.label.toLowerCase().startsWith(normalizedQuery) || right.name.toLowerCase().startsWith(normalizedQuery);
+    return Number(rightStarts) - Number(leftStarts) || left.label.localeCompare(right.label) || left.name.localeCompare(right.name);
+  });
+  return { items: matches.slice(0, safeLimit), totalMatches: matches.length, totalScanned: items.length };
+}
+
+// Pseudo-object for product attributes (stored as Attribute records, not as schema fields).
+export const ATTRIBUTE_OBJECT = Object.freeze({ name: 'Attribute', label: 'Product Attributes', description: 'Product attributes (Attribute records)', category: 'Product attributes', objectType: 'Attribute', protected: false, deprecated: false, kind: 'attribute' });
+
 export function normalizeBearerToken(value) {
   if (typeof value !== 'string') throw new CongaApiError('Bearer token is required', 400);
   const token = value.trim().replace(/^Bearer\s+/i, '').trim();
@@ -113,7 +129,10 @@ export class CongaClient {
       const rightStarts = right.label.toLowerCase().startsWith(normalizedQuery) || right.name.toLowerCase().startsWith(normalizedQuery);
       return Number(rightStarts) - Number(leftStarts) || left.label.localeCompare(right.label) || left.name.localeCompare(right.name);
     });
-    return { items: matches.slice(0, safeLimit), totalMatches: matches.length, totalScanned: objects.length };
+    // Product attributes are offered as their own entry, first, when the query fits it.
+    const attributeEntry = 'product attributes'.includes(normalizedQuery) || normalizedQuery.includes('attribute');
+    const items = attributeEntry ? [ATTRIBUTE_OBJECT, ...matches] : matches;
+    return { items: items.slice(0, safeLimit), totalMatches: items.length, totalScanned: objects.length };
   }
 
   async getObjectFields(objectName) {
@@ -199,22 +218,21 @@ export class CongaClient {
     return definition;
   }
 
-  // POST /api/search/v1/objects/FieldExpression/query — every CPQ Field Expression (active and inactive).
-  // The response is a bare array. Only Id and Name are selected: everything else is read from the detail call.
+  // POST /api/search/v1/objects/{objectName}/query — every record of a data object (bare-array response).
   // Sorted by Id (unique) so Skip paging cannot repeat or miss rows that share a ModifiedDate; Skip advances
   // by the rows actually returned, and rows are de-duplicated by Id as a safety net.
-  async listFieldExpressions() {
+  async queryAllRecords(objectName, select, label) {
     const all = [];
     const seen = new Set();
     const limit = 100;
     let skip = 0;
     for (let page = 0; page < 200; page += 1) {
-      const payload = await this.request('/api/search/v1/objects/FieldExpression/query', { includeTotalCount: true }, {
+      const payload = await this.request(`/api/search/v1/objects/${encodeURIComponent(objectName)}/query`, { includeTotalCount: true }, {
         method: 'POST',
-        body: { ObjectName: 'FieldExpression', Criteria: '', Select: ['Id', 'Name'], Skip: skip, Limit: limit, Sort: { FieldName: 'Id', OrderBy: 'Ascending' } }
+        body: { ObjectName: objectName, Criteria: '', Select: select, Skip: skip, Limit: limit, Sort: { FieldName: 'Id', OrderBy: 'Ascending' } }
       });
       const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data', 'Records', 'records', 'Items', 'items') ?? [];
-      if (!Array.isArray(data)) throw new CongaApiError('Unexpected field expression query response shape', 502);
+      if (!Array.isArray(data)) throw new CongaApiError(`Unexpected ${label} query response shape`, 502);
       skip += data.length;
       for (const row of data) {
         const id = pick(row, 'Id', 'id');
@@ -223,9 +241,32 @@ export class CongaClient {
       }
       const total = Array.isArray(payload) ? undefined : pick(payload, 'TotalCount', 'totalCount');
       if (data.length === 0 || (typeof total === 'number' ? skip >= total : data.length < limit)) break;
-      if (page === 199) throw new CongaApiError('Field expressions exceeded the 200-page safety limit', 502);
+      if (page === 199) throw new CongaApiError(`${label[0].toUpperCase()}${label.slice(1)}s exceeded the 200-page safety limit`, 502);
     }
     return all;
+  }
+
+  // Every CPQ Field Expression (active and inactive). Only Id and Name: the rest comes from the detail call.
+  async listFieldExpressions() {
+    return this.queryAllRecords('FieldExpression', ['Id', 'Name'], 'field expression');
+  }
+
+  // Product attributes are data records of the Attribute object, not schema fields. Shaped like fields
+  // (name = API name, label = DisplayName, type) so the picker and scan treat them the same way.
+  async listAttributes() {
+    const rows = await this.queryAllRecords('Attribute', ['Id', 'Name', 'DisplayName', 'Type'], 'attribute');
+    return rows.map((row) => ({
+      id: pick(row, 'Id', 'id') ?? null,
+      name: pick(row, 'Name', 'name') ?? '',
+      label: pick(row, 'DisplayName', 'displayName') || pick(row, 'Name', 'name') || '',
+      type: pick(row, 'Type', 'type') ?? 'Unknown',
+      kind: 'attribute'
+    })).filter((item) => item.name);
+  }
+
+  async searchAttributes(query = '', limit = 50) {
+    const attributes = await this.listAttributes();
+    return rankedMatches(attributes, query, limit, (item) => [item.name, item.label, item.type]);
   }
 
   // GET /api/revenue-admin/v1/field-expressions/{id} — one Field Expression with its filter and value expressions.

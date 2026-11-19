@@ -86,7 +86,9 @@ function tenantFetch() {
     ] } });
     if (pathname.endsWith('/dependency-fields')) return json({ Success: true, Data: [] });
     if (pathname === '/api/workflow/v1/query/WorkflowDefinition') return json({ Data: [], TotalCount: 0 });
-    if (pathname === '/api/search/v1/objects/FieldExpression/query') return json([{ Id: 'fe-1', Name: 'Status filter' }]);
+    if (pathname === '/api/search/v1/objects/FieldExpression/query') return json([{ Id: 'fe-1', Name: 'Status filter' }, { Id: 'fe-2', Name: 'Speed' }]);
+    if (pathname === '/api/search/v1/objects/Attribute/query') return json([{ Id: 'at-1', Name: 'Internet_Speed_c', DisplayName: 'Internet Speed', Type: 'Picklist' }]);
+    if (pathname === '/api/revenue-admin/v1/field-expressions/fe-2') return json({ Id: 'fe-2', Name: 'Speed', IsActive: true, ExpressionType: 'Field Update', UpdateObject: 'LineItem', SourceObject: 'LineItem', UpdateField: 'Attribute.Internet_Speed_c', ConditionScope: 'Product', Product: { Id: 'p', Name: 'Internet Service' }, Expression: "'25 Mbps'" });
     if (pathname === '/api/revenue-admin/v1/field-expressions/fe-1') return json({ Id: 'fe-1', Name: 'Status filter', IsActive: true, ExpressionType: 'Field Update', EvaluationContext: 'Record Update', UpdateObject: 'Agreement', SourceObject: 'Agreement', UpdateField: 'Stage', ConditionExpression: '$.Status == "Active"', Expression: "'Open'" });
     if (pathname === '/api/extensibility/v1/servicehooks/rules') return json({ Success: true, Data: [] });
     if (pathname === '/api/extensibility/v1/callbacks') return json([]);
@@ -121,6 +123,11 @@ test('the built extension core runs the full flow in-page against the tenant', a
   assert.deepEqual(scan.body.formulaDependencies.map((item) => item.fieldName), ['StatusLabel']);
   assert.deepEqual(scan.body.fieldExpressions.map((item) => [item.expressionName, item.usage, item.viewUrl]), [['Status filter', 'Condition', 'https://rls.congacloud.com/cadmin/field-expression/fe-1']]);
   assert.equal(scan.body.customCode.length, 1, 'ZIP fallback is decompressed in-page');
+
+  const attributes = await api.handle({ method: 'POST', pathname: '/api/platform/fields/search', body: { ...connection, objectName: 'Attribute', kind: 'attribute', query: 'speed' } });
+  assert.deepEqual(attributes.body.items.map((item) => item.name), ['Internet_Speed_c']);
+  const attributeScan = await api.handle({ method: 'POST', pathname: '/api/platform/usage-scan', body: { ...connection, objectName: 'Attribute', kind: 'attribute', fieldName: 'Internet_Speed_c' } });
+  assert.deepEqual(attributeScan.body.fieldExpressions.map((item) => [item.expressionName, item.usage, item.confidence]), [['Speed', 'Field update', 'Exact']]);
   assert.equal(scan.body.customCode[0].confidence, 'Exact');
   assert.equal(scan.body.customCode[0].viewUrl, 'https://rls.congacloud.com/cc/ZipProject');
   assert.ok(tenant.seen.every((call) => call.auth === 'Bearer test-token' && call.redirect === 'error'));

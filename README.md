@@ -98,6 +98,12 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
    - Results link to the CPQ admin page (`{platformUrl}/cadmin/field-expression/{id}` by default). The section is shown above **Custom code**.
    - If the API is unavailable (for example a tenant without CPQ), or an expression cannot be read, the collector reports `failed`/`partial`; the other collectors still return.
 
+   - **Product attributes.** Attributes are `Attribute` records (data), not schema fields. The object search offers a **Product Attributes** entry (for an empty query or one matching "attribute"/"product attributes"); its field search lists every attribute from `POST /api/search/v1/objects/Attribute/query?includeTotalCount=true` (`Id`, `Name`, `DisplayName`, `Type`; paged by `Id`) as `Display Name - API Name - Type`.
+     - An attribute scan checks Field Expressions only: `Attribute.<Name>` and `AttributeValue.<Name>` (the same thing; `$.` optional) in Update field, Filter expression or Update expression → green. `__c` and `_c` endings are treated as the same.
+     - The attribute's display name as `UpdateField` (e.g. `Currency Attribute`), or the bare name without the `Attribute.` prefix → orange.
+     - Formula dependencies are not applicable; workflows and custom code are not yet checked for attributes (shown in Scan coverage).
+     - In a normal field scan, `Attribute.X` / `AttributeValue.X` paths are never matched unless a real lookup with that name resolves to the selected object.
+
 4. **Custom code references**
    - Lists every project with `GET /api/extensibility/v1/customcode`.
    - Reads each project's source from `GET /api/extensibility/v1/customcode/{name}` (`Documents[].SourceCode`), three at a time. If a project returns no documents, it falls back to `GET /api/extensibility/v1/customcode/{name}/download` and reads the `.cs`/text files from the ZIP in memory (`bin/` and `obj/` are skipped).

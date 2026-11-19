@@ -53,8 +53,11 @@ const workflowQueries = [];
 // lookup points at Object250, OtherRel points elsewhere, and there is no Attribute lookup.
 //   fe-0 updates AttributeValue.TargetField (resolved -> Exact)   fe-1 (inactive) reads $.TargetField in its condition
 //   fe-2 cannot be read                                           fe-3 is only *named* TargetField / has it in a literal
-//   fe-4 updates Attribute.TargetField (unresolved -> Probable)   fe-5 updates by label "Late Field" (Probable)
+//   fe-4 updates Bundle.TargetField (unresolved -> Probable)      fe-5 updates by label "Late Field" (Probable)
 //   fe-6 uses bare TargetField in its value expression (Probable) fe-7 updates OtherRel.TargetField (other object, no match)
+//   fe-8 updates Attribute.TargetField (a product attribute: no match in a field scan)
+// Product attribute Internet_Speed_c ("Internet Speed"): fe-9 condition $.AttributeValue.Internet_Speed__c (Exact),
+//   fe-10 updates by display name (Probable), fe-11 updates AttributeValue.Internet_Speed_c (Exact).
 const fieldExpressionSummaries = Array.from({ length: 103 }, (_, index) => ({ Id: `fe-${index}`, Name: index === 3 ? 'TargetField' : `Expression ${index}` }));
 function fieldExpressionDefinition(id) {
   const index = Number(id.split('-')[1]);
@@ -65,13 +68,22 @@ function fieldExpressionDefinition(id) {
   if (index === 0) return { ...base, UpdateField: 'AttributeValue.TargetField' };
   if (index === 1) return { ...base, UpdateObject: 'Object250', SourceObject: 'Object250', UpdateField: 'Field000', ConditionExpression: '$.TargetField > 0' };
   if (index === 3) return { ...base, Expression: "'TargetField'" };
-  if (index === 4) return { ...base, UpdateField: 'Attribute.TargetField' };
+  if (index === 4) return { ...base, UpdateField: 'Bundle.TargetField' };
   if (index === 5) return { ...base, UpdateField: 'Late Field', Product: null, ProductGroup: { Id: 'g1', Name: 'Hardware' } };
   if (index === 6) return { ...base, UpdateObject: 'Object250', SourceObject: 'Object250', UpdateField: 'Field000', Expression: 'TargetField * 2' };
   if (index === 7) return { ...base, UpdateField: 'OtherRel.TargetField' };
+  if (index === 8) return { ...base, UpdateField: 'Attribute.TargetField' };
+  if (index === 9) return { ...base, ConditionExpression: "$.AttributeValue.Internet_Speed__c == '25 Mbps'" };
+  if (index === 10) return { ...base, UpdateField: 'Internet Speed' };
+  if (index === 11) return { ...base, UpdateField: 'AttributeValue.Internet_Speed_c', ConditionScope: 'Header', Product: null };
   return base;
 }
 const fieldExpressionQueries = [];
+// 150 product attributes over two pages; at-120 is Internet_Speed_c.
+const attributeRecords = Array.from({ length: 150 }, (_, index) => index === 120
+  ? { Id: `at-${index}`, Name: 'Internet_Speed_c', DisplayName: 'Internet Speed', Type: 'Picklist' }
+  : { Id: `at-${index}`, Name: `Attr_${index}_c`, DisplayName: `Attr ${index}`, Type: 'Double' });
+const attributeQueries = [];
 // Cross-object formulas: Object010 -> Object250 via lookup, Object011 -> Object010 -> Object250 (two hops),
 // Object012 has a TargetField path that leads to a different object, Object013 names the object directly,
 // Object014's only mention is inside a string literal, Object015's schema cannot be read.
@@ -131,6 +143,11 @@ before(async () => {
       let raw = ''; for await (const chunk of request) raw += chunk;
       const body = JSON.parse(raw); fieldExpressionQueries.push({ query: url.search, body });
       return json(response, 200, fieldExpressionSummaries.slice(body.Skip, body.Skip + body.Limit));
+    }
+    if (url.pathname === '/api/search/v1/objects/Attribute/query' && request.method === 'POST') {
+      let raw = ''; for await (const chunk of request) raw += chunk;
+      const body = JSON.parse(raw); attributeQueries.push({ query: url.search, body });
+      return json(response, 200, attributeRecords.slice(body.Skip, body.Skip + body.Limit));
     }
     const fieldExpressionMatch = url.pathname.match(/^\/api\/revenue-admin\/v1\/field-expressions\/([^/]+)$/);
     if (fieldExpressionMatch) {
@@ -324,7 +341,8 @@ test('field expression matcher reads the live detail shape: update field, $. con
   const shape = (matches) => matches.map((item) => [item.usage, item.confidence, item.snippet]);
   assert.deepEqual(shape(findFieldInFieldExpression(internetSpeed, 'LineItem', 'Quantity')), [['Condition', 'Exact', '$.Quantity > 0']]);
   assert.deepEqual(shape(findFieldInFieldExpression(internetSpeed, 'Asset', 'Quantity')), [], '$. is the source object, not any object');
-  assert.deepEqual(shape(findFieldInFieldExpression(internetSpeed, 'LineItemAttributeValue', 'Internet_Speed_c')), [['Field update', 'Probable', 'Attribute.Internet_Speed_c']], 'no schema: relationship unresolved');
+  assert.deepEqual(findFieldInFieldExpression(internetSpeed, 'LineItemAttributeValue', 'Internet_Speed_c'), [], 'Attribute. is a product attribute, not a field, unless a real lookup resolves');
+  assert.deepEqual(shape(findFieldInFieldExpression({ UpdateObject: 'LineItem', UpdateField: 'Bundle.Rate' }, 'BundleObject', 'Rate')), [['Field update', 'Probable', 'Bundle.Rate']], 'other unresolved relationships stay Probable');
   const schemas = new Map([['lineitem', [{ name: 'Attribute', lookupObjectName: 'LineItemAttributeValue' }]]]);
   assert.deepEqual(shape(findFieldInFieldExpression(internetSpeed, 'LineItemAttributeValue', 'Internet_Speed_c', { schemas })), [['Field update', 'Exact', 'Attribute.Internet_Speed_c']]);
   assert.deepEqual(findFieldInFieldExpression(internetSpeed, 'ProductAttributeValue', 'Internet_Speed_c', { schemas }), [], 'the lookup leads to a different object');
@@ -335,6 +353,22 @@ test('field expression matcher reads the live detail shape: update field, $. con
   assert.deepEqual(shape(findFieldInFieldExpression({ UpdateObject: 'LineItem', UpdateField: 'Currency Attribute' }, 'X', 'Currency_Attribute_c', { fieldLabel: 'Currency Attribute' })), [['Field update', 'Probable', 'Currency Attribute']]);
   assert.deepEqual(shape(findFieldInFieldExpression({ SourceObject: 'LineItem', Expression: 'LineItem.ListPrice * 2' }, 'LineItem', 'ListPrice')), [['Value expression', 'Exact', 'LineItem.ListPrice * 2']]);
   assert.deepEqual(shape(findFieldInFieldExpression({ SourceObject: 'LineItem', Expression: 'ListPrice * 2' }, 'LineItem', 'ListPrice')), [['Value expression', 'Probable', 'ListPrice * 2']]);
+});
+
+test('attribute matcher: Attribute. and AttributeValue. are the same, __c equals _c, display name is Probable', () => {
+  const internetSpeed = { Id: 'x', Name: 'InternetSpeed', ConditionExpression: '$.Quantity > 0', Expression: "'25 Mbps'", SourceObject: 'LineItem', UpdateObject: 'LineItem', UpdateField: 'Attribute.Internet_Speed_c', Product: { Name: 'Internet Service' } };
+  const shape = (matches) => matches.map((item) => [item.usage, item.confidence, item.snippet]);
+  const attr = (definition, name, label = null) => shape(findFieldInFieldExpression(definition, 'Attribute', name, { attribute: true, fieldLabel: label }));
+  assert.deepEqual(attr(internetSpeed, 'Internet_Speed_c'), [['Field update', 'Exact', 'Attribute.Internet_Speed_c']]);
+  assert.deepEqual(attr(internetSpeed, 'Internet_Speed__c'), [['Field update', 'Exact', 'Attribute.Internet_Speed_c']], '__c and _c are the same');
+  assert.deepEqual(attr({ UpdateObject: 'LineItem', UpdateField: 'AttributeValue.RLM_Price_c' }, 'RLM_Price_c'), [['Field update', 'Exact', 'AttributeValue.RLM_Price_c']]);
+  assert.deepEqual(attr({ SourceObject: 'LineItem', ConditionExpression: "$.AttributeValue.Site_Users_c > 10 && $.Quantity > 0" }, 'Site_Users_c'), [['Condition', 'Exact', "$.AttributeValue.Site_Users_c > 10 && $.Quantity > 0"]]);
+  assert.deepEqual(attr({ SourceObject: 'LineItem', Expression: '$.Attribute.RLM_Cost_c * 1.2' }, 'RLM_Cost_c'), [['Value expression', 'Exact', '$.Attribute.RLM_Cost_c * 1.2']]);
+  assert.deepEqual(attr({ UpdateObject: 'LineItem', UpdateField: 'Currency Attribute' }, 'Currency_Attribute_c', 'Currency Attribute'), [['Field update', 'Probable', 'Currency Attribute']]);
+  assert.deepEqual(attr({ UpdateObject: 'LineItem', UpdateField: 'TestAttribute' }, 'TestAttribute_c', 'TestAttribute'), [['Field update', 'Probable', 'TestAttribute']], 'display name without spaces');
+  assert.deepEqual(attr({ UpdateObject: 'LineItem', UpdateField: 'Total_Service_hours_c' }, 'Total_Service_hours_c'), [['Field update', 'Probable', 'Total_Service_hours_c']], 'bare name without the Attribute. prefix');
+  assert.deepEqual(attr({ UpdateObject: 'LineItem', UpdateField: 'Attribute.Internet_Speed_c', Expression: "'Internet_Speed_c'" }, 'Speed_c'), [], 'partial names and literals do not match');
+  assert.deepEqual(attr({ UpdateObject: 'LineItem', UpdateField: 'PriceListItem.RLM_Price_c' }, 'RLM_Price_c'), [], 'another relationship is not an attribute');
 });
 
 test('usage scan pages field expressions with Id/Name only, resolves relationships and tolerates an unreadable one', async () => {
@@ -363,6 +397,7 @@ test('usage scan pages field expressions with Id/Name only, resolves relationshi
   assert.equal(result.fieldExpressions[3].productGroup, 'Hardware');
   const collector = result.coverage.collectors.find((item) => item.key === 'fieldExpressions');
   assert.deepEqual([collector.status, collector.matches], ['partial', 5]);
+  assert.ok(!result.fieldExpressions.some((item) => item.recordId === 'fe-8'), 'Attribute.TargetField is a product attribute, not Object250.TargetField');
   assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'customCode']);
   assert.ok(result.limitations.some((text) => /1 field expression\(s\) could not be read/.test(text)));
 });
@@ -373,4 +408,36 @@ test('field expression links default to the CPQ admin page and the section sits 
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   assert.ok(html.indexOf('id="workflow-section"') < html.indexOf('id="fieldexpression-section"'));
   assert.ok(html.indexOf('id="fieldexpression-section"') < html.indexOf('id="customcode-section"'));
+});
+
+test('product attributes are offered in object search, listed from Attribute records and scanned in Field Expressions', async () => {
+  const objectsResult = await (await post('/api/platform/objects/search', credentials({ query: 'attrib' }))).json();
+  assert.deepEqual([objectsResult.items[0].name, objectsResult.items[0].label, objectsResult.items[0].kind], ['Attribute', 'Product Attributes', 'attribute']);
+  const lateObject = await (await post('/api/platform/objects/search', credentials({ query: 'late' }))).json();
+  assert.ok(!lateObject.items.some((item) => item.kind === 'attribute'), 'not offered for unrelated queries');
+
+  const before = attributeQueries.length;
+  const attributes = await (await post('/api/platform/fields/search', credentials({ objectName: 'Attribute', kind: 'attribute', query: 'internet' }))).json();
+  const queries = attributeQueries.slice(before);
+  assert.deepEqual(queries[0].body, { ObjectName: 'Attribute', Criteria: '', Select: ['Id', 'Name', 'DisplayName', 'Type'], Skip: 0, Limit: 100, Sort: { FieldName: 'Id', OrderBy: 'Ascending' } });
+  assert.equal(queries.length, 2); assert.equal(queries[1].body.Skip, 100); assert.match(queries[0].query, /includeTotalCount=true/);
+  assert.equal(attributes.totalScanned, 150);
+  assert.deepEqual(attributes.items.map((item) => [item.label, item.name, item.type]), [['Internet Speed', 'Internet_Speed_c', 'Picklist']]);
+
+  const response = await post('/api/platform/usage-scan', credentials({ objectName: 'Attribute', kind: 'attribute', fieldName: 'Internet_Speed_c' }));
+  assert.equal(response.status, 200); const result = await response.json();
+  assert.deepEqual([result.field.objectName, result.field.fieldName, result.field.label, result.field.kind], ['Attribute', 'Internet_Speed_c', 'Internet Speed', 'attribute']);
+  assert.deepEqual(result.fieldExpressions.map((item) => [item.recordId, item.usage, item.confidence]), [
+    ['fe-11', 'Field update', 'Exact'],
+    ['fe-9', 'Condition', 'Exact'],
+    ['fe-10', 'Field update', 'Probable']
+  ]);
+  assert.equal(result.fieldExpressions[0].conditionScope, 'Header');
+  assert.equal(result.fieldExpressions[0].viewUrl, `${upstreamUrl}/cadmin/field-expression/fe-11`);
+  assert.deepEqual(result.coverage.collectors.map((item) => [item.key, item.status]), [['formulaDependencies', 'not applicable'], ['workflows', 'not applicable'], ['fieldExpressions', 'partial'], ['customCode', 'not applicable']]);
+  assert.equal(result.coverage.attributesScanned, 150);
+  assert.deepEqual([result.formulaDependencies, result.workflows, result.customCode], [[], [], []]);
+
+  const missing = await post('/api/platform/usage-scan', credentials({ objectName: 'Attribute', kind: 'attribute', fieldName: 'Not_There_c' }));
+  assert.equal(missing.status, 404);
 });

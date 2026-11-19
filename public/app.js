@@ -109,20 +109,20 @@ async function searchObjects(query) {
 function selectObject(item) {
   state.selectedObject = item; state.selectedField = null; state.fieldResults = [];
   $('#object-search').value = formatObject(item); closeOptions('object');
-  $('#field-search').disabled = false; $('#field-search').value = ''; $('#field-search').placeholder = 'Search field label, API name, or data type';
+  $('#field-search').disabled = false; $('#field-search').value = ''; $('#field-search').placeholder = item.kind === 'attribute' ? 'Search attribute display name, API name, or type' : 'Search field label, API name, or data type';
   $('#run-scan').disabled = true; $('#field-identity').classList.add('hidden'); $('#usage-results').classList.add('hidden');
   searchFields(''); $('#field-search').focus();
 }
 async function searchFields(query) {
   if (!state.connection || !state.selectedObject) return;
   const sequence = ++state.fieldSearchSequence;
-  $('#field-search-status').textContent = 'Searching complete object schema…';
+  $('#field-search-status').textContent = state.selectedObject.kind === 'attribute' ? 'Searching all product attributes…' : 'Searching complete object schema…';
   $('#field-options').innerHTML = '<div class="combo-message"><span class="spin">◌</span> Searching fields…</div>'; openOptions('field');
   try {
-    const result = await platformRequest('/api/platform/fields/search', { objectName: state.selectedObject.name, query, limit: 50 });
+    const result = await platformRequest('/api/platform/fields/search', { objectName: state.selectedObject.name, kind: state.selectedObject.kind, query, limit: 50 });
     if (sequence !== state.fieldSearchSequence) return;
     state.fieldResults = result.items;
-    $('#field-search-status').textContent = `${result.totalMatches.toLocaleString()} match${result.totalMatches === 1 ? '' : 'es'} across ${result.totalScanned.toLocaleString()} fields`;
+    $('#field-search-status').textContent = `${result.totalMatches.toLocaleString()} match${result.totalMatches === 1 ? '' : 'es'} across ${result.totalScanned.toLocaleString()} ${state.selectedObject.kind === 'attribute' ? 'attributes' : 'fields'}`;
     $('#field-options').innerHTML = result.items.length ? result.items.map((item, index) => `<button type="button" role="option" data-index="${index}"><strong>${escapeHtml(formatField(item))}</strong></button>`).join('') : '<div class="combo-message">No matching fields</div>';
   } catch (error) { if (sequence === state.fieldSearchSequence) { showError(error); $('#field-options').innerHTML = '<div class="combo-message error-text">Field search failed</div>'; } }
 }
@@ -141,7 +141,7 @@ async function runUsageScan() {
   try {
     clearError(); button.disabled = true; button.innerHTML = '<span class="spin">◌</span> Scanning';
     $('#usage-results').classList.remove('hidden'); $('#usage-panel').open = true; $('#usage-status').className = 'pill running'; $('#usage-status').textContent = '◌ Scanning';
-    const result = await platformRequest('/api/platform/usage-scan', { objectName: state.selectedObject.name, fieldName: state.selectedField.name });
+    const result = await platformRequest('/api/platform/usage-scan', { objectName: state.selectedObject.name, kind: state.selectedObject.kind, fieldName: state.selectedField.name });
     renderUsage(result); $('#usage-status').className = 'pill success'; $('#usage-status').textContent = '✓ Complete';
   } catch (error) { $('#usage-status').className = 'pill failed'; $('#usage-status').textContent = '⚠ Failed'; showError(error); }
   finally { button.disabled = false; button.innerHTML = 'Find usage'; }
@@ -161,8 +161,8 @@ function renderUsage(result) {
   const total = result.formulaDependencies.length + workflows.length + fieldExpressions.length + customCode.length;
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
-    ...result.coverage.collectors.map((item) => `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
+    ...result.coverage.collectors.map((item) => item.status === 'not applicable' ? `${item.label}: not applicable to product attributes` : `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
+    result.field.kind === 'attribute' ? `Scanned: ${result.coverage.attributesScanned ?? 0} product attributes, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions` : `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#formula-section').innerHTML = usageSection('Formula dependencies', result.formulaDependencies.length, 'No formula dependencies found',

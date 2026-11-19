@@ -44,11 +44,12 @@ export function createApi({ fetchImpl, platformUrlOptions = {}, linkTemplates, e
     },
     'POST /api/platform/fields/search': async (input) => {
       const { client } = clientFromInput(input, doFetch, platformUrlOptions);
+      if (input.kind === 'attribute') return client.searchAttributes(String(input.query ?? ''), input.limit);
       return client.searchFields(input.objectName, String(input.query ?? ''), input.limit);
     },
     'POST /api/platform/usage-scan': async (input) => {
       const { client, platformUrl } = clientFromInput(input, doFetch, platformUrlOptions);
-      return scanFieldUsage(client, input.objectName, input.fieldName, { platformUrl, linkTemplates: templates });
+      return scanFieldUsage(client, input.objectName, input.fieldName, { platformUrl, linkTemplates: templates, kind: input.kind === 'attribute' ? 'attribute' : 'field' });
     }
   };
 

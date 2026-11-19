@@ -13,7 +13,12 @@
 //   UpdateField                  path from UpdateObject   ("Quantity", "AttributeValue.Battery_Capacity_c")
 //   ConditionExpression, Expression   expressions; `$.Path` is a path from SourceObject
 //   GroupByField, ParentField    paths from SourceObject
-// Relationship segments (e.g. AttributeValue) are followed through lookup fields in the tenant schemas.
+// Relationship segments are followed through lookup fields in the tenant schemas.
+//
+// Product attributes are not schema fields: they are Attribute records, referenced as `Attribute.<Name>` or
+// `AttributeValue.<Name>` (the same thing). `__c` and `_c` name endings are treated as the same.
+// In an attribute scan those paths are Exact; in a field scan they are never matches (unless a real lookup
+// with that name resolves to the selected object).
 // Browser-safe: runs in the standalone server and in the Chrome extension.
 
 import { followLookup } from './formulaScanner.js';
@@ -29,6 +34,8 @@ const sameObject = (left, right) => Boolean(left) && Boolean(right) && normalize
 const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const expressionPath = /(\$\.)?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/g;
 const rank = { Exact: 2, Probable: 1 };
+const attributePrefixes = new Set(['attribute', 'attributevalue']);
+export const normalizeAttributeName = (value) => lower(value).replace(/__c$/, '_c');
 
 const pathProperties = [
   { key: 'UpdateField', usage: 'Field update', owner: 'update' },
@@ -51,17 +58,29 @@ export function classifyPath(schemas, owner, segments, objectName, fieldName) {
   let current = owner;
   for (const hop of hops) {
     const next = schemas && current ? followLookup(schemas, current, hop) : null;
+    if (!next && attributePrefixes.has(lower(hops[0]))) return null; // a product attribute, not this field
     if (!next) return { confidence: 'Probable', note: `relationship ${hops.join('.')} could not be resolved from ${owner || 'the expression object'}` };
     current = next;
   }
   return sameObject(current, objectName) ? { confidence: 'Exact', note: `${hops.join('.')} → ${current}` } : null;
 }
 
+// Classifies one dotted path as a reference to the product attribute `attributeName`.
+export function classifyAttributePath(owner, segments, attributeName) {
+  if (!segments.length || normalizeAttributeName(segments.at(-1)) !== normalizeAttributeName(attributeName)) return null;
+  let hops = segments.slice(0, -1);
+  if (hops.length && owner && sameObject(hops[0], owner)) hops = hops.slice(1);
+  if (hops.length === 1 && attributePrefixes.has(lower(hops[0]))) return { confidence: 'Exact' };
+  if (!hops.length) return { confidence: 'Probable', note: 'attribute name without Attribute. prefix' };
+  return null;
+}
+
 function stripLiterals(text) {
   return text.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (match) => ' '.repeat(match.length));
 }
 
-export function findFieldInFieldExpression(definition, objectName, fieldName, { schemas = null, fieldLabel = null } = {}) {
+// attribute: true scans for the product attribute `fieldName` (objectName is ignored).
+export function findFieldInFieldExpression(definition, objectName, fieldName, { schemas = null, fieldLabel = null, attribute = false } = {}) {
   const updateObject = pick(definition, 'UpdateObject', 'updateObject') || pick(definition, 'SourceObject', 'sourceObject') || null;
   const sourceObject = pick(definition, 'SourceObject', 'sourceObject') || updateObject;
   const matches = [];
@@ -73,10 +92,12 @@ export function findFieldInFieldExpression(definition, objectName, fieldName, { 
     const segments = text.split('.').map((part) => part.trim());
     let found = null;
     if (segments.every((part) => identifier.test(part))) {
-      found = classifyPath(schemas, owner === 'update' ? updateObject : sourceObject, segments, objectName, fieldName);
-    } else if (fieldLabel && lower(text) === lower(fieldLabel)) {
+      const from = owner === 'update' ? updateObject : sourceObject;
+      found = attribute ? classifyAttributePath(from, segments, fieldName) : classifyPath(schemas, from, segments, objectName, fieldName);
+    }
+    if (!found && fieldLabel && lower(text) === lower(fieldLabel)) {
       // e.g. UpdateField "Currency Attribute": a display name rather than an API name.
-      found = { confidence: 'Probable', note: 'matched by field label' };
+      found = { confidence: 'Probable', note: attribute ? 'matched by attribute display name' : 'matched by field label' };
     }
     if (found) matches.push({ property: key, usage, snippet: text, ...found });
   }
@@ -88,9 +109,9 @@ export function findFieldInFieldExpression(definition, objectName, fieldName, { 
     for (const match of stripLiterals(value).matchAll(expressionPath)) {
       const anchored = Boolean(match[1]);
       const segments = match[0].replace(/^\$\./, '').split('.');
-      let found = classifyPath(schemas, sourceObject, segments, objectName, fieldName);
+      let found = attribute ? classifyAttributePath(sourceObject, segments, fieldName) : classifyPath(schemas, sourceObject, segments, objectName, fieldName);
       // A path without `$.` is not tied to the record for certain, unless it names the selected object.
-      if (found && !anchored && found.confidence === 'Exact' && !(segments.length === 2 && sameObject(segments[0], objectName))) {
+      if (found && !attribute && !anchored && found.confidence === 'Exact' && !(segments.length === 2 && sameObject(segments[0], objectName))) {
         found = { ...found, confidence: 'Probable' };
       }
       if (found && (!best || rank[found.confidence] > rank[best.confidence])) best = found;
@@ -111,7 +132,8 @@ async function mapWithConcurrency(items, limit, worker) {
 const relatedName = (value) => (value && typeof value === 'object' ? pick(value, 'Name', 'name') : value) || null;
 
 // `schemas` (optional) is a promise or Map of lower(objectName) -> fields, used to follow relationship paths.
-export async function scanFieldExpressions(client, objectName, fieldName, { schemas = null } = {}) {
+// attribute (optional) = { name, label }: scan for that product attribute instead of objectName.fieldName.
+export async function scanFieldExpressions(client, objectName, fieldName, { schemas = null, attribute = null } = {}) {
   const summaries = await client.listFieldExpressions();
   const failures = [];
   const definitions = await mapWithConcurrency(summaries, 5, async (summary) => {
@@ -120,13 +142,13 @@ export async function scanFieldExpressions(client, objectName, fieldName, { sche
     catch { failures.push(pick(summary, 'Name', 'name') || id); return null; }
   });
   const schemaMap = await Promise.resolve(schemas).catch(() => null);
-  const fieldLabel = schemaMap?.get(lower(objectName))?.find((field) => lower(field.name) === lower(fieldName))?.label ?? null;
+  const fieldLabel = attribute ? attribute.label ?? null : schemaMap?.get(lower(objectName))?.find((field) => lower(field.name) === lower(fieldName))?.label ?? null;
 
   const results = [];
   for (const entry of definitions) {
     if (!entry) continue;
     const { summary, definition } = entry;
-    const matches = findFieldInFieldExpression(definition, objectName, fieldName, { schemas: schemaMap, fieldLabel });
+    const matches = findFieldInFieldExpression(definition, objectName, fieldName, { schemas: schemaMap, fieldLabel, attribute: Boolean(attribute) });
     if (!matches.length) continue;
     const recordId = String(pick(definition, 'Id', 'id') ?? pick(summary, 'Id', 'id'));
     const active = pick(definition, 'IsActive', 'isActive');
