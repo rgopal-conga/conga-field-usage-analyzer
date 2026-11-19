@@ -177,7 +177,7 @@ function renderUsage(result) {
       referenceTitle(item.workflowName, item.viewUrl), escapeHtml(item.usage)
     ])));
   $('#fieldexpression-section').innerHTML = usageSection('Field expressions', fieldExpressions.length, 'No field expression references found',
-    fieldExpressionLegend + table(['Field expression name', 'Is active', 'Expression type', 'Scope', 'Filter expression', 'Update object', 'Update field', 'Update expression'],
+    fieldExpressionLegend + table(['Field expression name', 'Is active', 'Expression type', 'Used in', 'Matching expression'],
       fieldExpressions.map(fieldExpressionRow)));
   $('#constraintrule-section').innerHTML = usageSection('Constraint rules', constraintRules.length, 'No constraint rule references found',
     fieldExpressionLegend + table(['Constraint rule name', 'Is active', 'Type', 'Used in condition', 'Used in action'], constraintRules.map(constraintRuleRow)));
@@ -194,43 +194,22 @@ function constraintRuleRow(item) {
     cell(item.actions)
   ];
 }
-// One Field Expression row. The cell that references the scanned field is highlighted:
-// green = exact match, orange = probable match (see the legend above the table). Blank values stay blank.
+// One Field Expression row: where the field is used (coloured green/orange by match) and the matching text,
+// one line per match. Blank values stay blank.
+const fieldExpressionPlaces = { UpdateField: 'Update field', ConditionExpression: 'Filter expression', Expression: 'Update expression', GroupByField: 'Group by field', ParentField: 'Parent field' };
 function fieldExpressionRow(item) {
   const matches = item.matches ?? [];
-  const level = (...properties) => {
-    const hit = matches.filter((match) => properties.includes(match.property));
-    if (!hit.length) return null;
-    return { confidence: hit.some((match) => match.confidence === 'Exact') ? 'exact' : 'probable', title: hit.map((match) => match.note).filter(Boolean).join('; ') };
-  };
-  const mark = (html, ...properties) => {
-    const hit = level(...properties);
-    if (!hit || !html) return html;
-    return `<span class="field-match field-match-${hit.confidence}"${hit.title ? ` title="${escapeHtml(hit.title)}"` : ''}>${html}</span>`;
-  };
-  const code = (value) => (value ? `<code>${escapeHtml(value)}</code>` : '');
-  const extra = matches.filter((match) => match.property === 'GroupByField' || match.property === 'ParentField')
-    .map((match) => `<div class="muted">${escapeHtml(match.usage)}: ${mark(code(match.snippet), match.property)}</div>`).join('');
+  const usedIn = matches.map((match) => `<div><span class="field-match field-match-${escapeHtml(String(match.confidence).toLowerCase())}"${match.note ? ` title="${escapeHtml(match.note)}"` : ''}>${escapeHtml(fieldExpressionPlaces[match.property] ?? match.usage)}</span></div>`).join('');
+  const expressions = matches.map((match) => `<div>${match.snippet ? `<code>${escapeHtml(match.snippet)}</code>` : ''}</div>`).join('');
   return [
-    `${referenceTitle(item.expressionName, item.viewUrl)}${extra}`,
+    referenceTitle(item.expressionName, item.viewUrl),
     item.active === null || item.active === undefined ? '' : item.active ? 'Yes' : 'No',
     escapeHtml(item.expressionType ?? ''),
-    escapeHtml(fieldExpressionScope(item)),
-    mark(code(item.conditionExpression), 'ConditionExpression'),
-    escapeHtml(item.updateObject ?? ''),
-    mark(code(item.updateField), 'UpdateField'),
-    mark(code(item.expression), 'Expression')
+    usedIn,
+    expressions
   ];
 }
 const fieldExpressionLegend = '<div class="match-legend"><span><i class="field-match-exact"></i>Exact match</span><span><i class="field-match-probable"></i>Probable match</span></div>';
-// "Product - Internet Service", "Product Group - Hardware"; a scope with no item (e.g. Header) is shown on its own.
-function fieldExpressionScope(item) {
-  const scope = item.conditionScope || '';
-  const key = scope.toLowerCase().replace(/[^a-z]/g, '');
-  const target = key === 'product' ? item.product : key === 'productgroup' ? item.productGroup : null;
-  if (!scope) return item.product ? `Product - ${item.product}` : item.productGroup ? `Product Group - ${item.productGroup}` : '';
-  return target ? `${scope} - ${target}` : scope;
-}
 function runsAsText(item) {
   if (!item.runsAs || !item.runsAs.length) return '<span class="muted">Not linked to a hook, callback or Custom API</span>';
   return item.runsAs.map((entry) => `<div><strong>${escapeHtml(entry.type)}</strong> ${escapeHtml(entry.name)}${entry.objectName ? ` <span class="muted">on ${escapeHtml(entry.objectName)}</span>` : ''}${entry.active === false ? ' <span class="muted">(inactive)</span>' : ''}</div>`).join('');
