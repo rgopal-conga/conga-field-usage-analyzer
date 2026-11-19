@@ -196,7 +196,7 @@ export class CongaClient {
           Criteria: 'IsLatest=true',
           Skip: page * limit,
           Limit: limit,
-          Select: ['Id', 'DefinitionId', 'Name', 'DisplayName', 'WorkflowType'],
+          Select: ['Id', 'DefinitionId', 'Name', 'DisplayName'],
           Sort: { FieldName: 'Name', OrderBy: 'Ascending' }
         }
       });
