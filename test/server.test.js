@@ -7,6 +7,7 @@ import { normalizePlatformUrl } from '../server/platformUrl.js';
 import { buildReferenceUrl, referenceLinkTemplates } from '../server/referenceLinks.js';
 import { attributeNameVariants, findFieldInWorkflow } from '../server/workflowScanner.js';
 import { findFieldInFieldExpression } from '../server/fieldExpressionScanner.js';
+import { findFieldInConstraintAction, findFieldInConstraintCondition } from '../server/constraintRuleScanner.js';
 
 let upstream; let app; let upstreamUrl; let baseUrl;
 const observed = { apiHeaders: [], requests: [] };
@@ -84,6 +85,20 @@ const attributeRecords = Array.from({ length: 150 }, (_, index) => index === 120
   ? { Id: `at-${index}`, Name: 'Internet_Speed_c', DisplayName: 'Internet Speed', Type: 'Picklist' }
   : { Id: `at-${index}`, Name: `Attr_${index}_c`, DisplayName: `Attr ${index}`, Type: 'Double' });
 const attributeQueries = [];
+// Constraint rules, in the live envelope shape. cr-0: condition on Object250.TargetField (Exact);
+// cr-1 (inactive): action criteria with the attribute Internet_Speed_c on LineItemAttributeValue;
+// cr-2: conditions fail to load; cr-3: unrelated (LineStatus, as in the live sample).
+const criteria = (objectName, fieldName, fieldObject = objectName) => JSON.stringify({ ObjectName: objectName, ObjectLabel: objectName, filter: { predicates: [{ RowNum: 1, FieldValue: 'New', FieldType: 'PICKLIST', FieldName: fieldName, FieldLabel: fieldName, CompOper: 'equal to', BoolOper: 'AND', ObjectName: fieldObject, OptionValues: [{ key: 'TargetField', label: 'TargetField' }], RHSFieldType: null }], hasRHSFields: false, condExpr: '1', childFilter: null }, fields: [], extFields: [], exprStr: `(${fieldName} equal to New)`, logicEnabled: false });
+const constraintRules = Array.from({ length: 4 }, (_, index) => ({ Id: `cr-${index}`, Name: `Rule ${index}`, Type: index === 3 ? null : 'Inclusion', IsActive: index !== 1 }));
+const constraintRuleQueries = [];
+function constraintConditions(id) {
+  if (id === 'cr-0') return [{ Id: 'c0', Name: 'Rule 0 Condition 1', ConditionCriteria: criteria('Object250', 'TargetField'), Product: { Name: 'TargetField' }, Sequence: 1 }];
+  return [{ Id: `c-${id}`, Name: `${id} Condition 1`, ConditionCriteria: criteria('LineItem', 'LineStatus'), Product: { Name: 'P' }, ProductFieldA: null, Sequence: 1 }];
+}
+function constraintActions(id) {
+  if (id === 'cr-1') return [{ Id: 'a1', Name: 'Rule 1 Action 1', ActionCriteria: criteria('LineItem', 'Internet_Speed__c', 'LineItemAttributeValue'), ActionExpression: null, Message: 'TargetField {0}' }];
+  return [{ Id: `a-${id}`, Name: `${id} Action 1`, ActionCriteria: null, ActionExpression: null, Message: 'Rule {1} added due to {0}' }];
+}
 // Cross-object formulas: Object010 -> Object250 via lookup, Object011 -> Object010 -> Object250 (two hops),
 // Object012 has a TargetField path that leads to a different object, Object013 names the object directly,
 // Object014's only mention is inside a string literal, Object015's schema cannot be read.
@@ -148,6 +163,20 @@ before(async () => {
       let raw = ''; for await (const chunk of request) raw += chunk;
       const body = JSON.parse(raw); attributeQueries.push({ query: url.search, body });
       return json(response, 200, attributeRecords.slice(body.Skip, body.Skip + body.Limit));
+    }
+    if (url.pathname === '/api/search/v1/objects/ConstraintRule/query' && request.method === 'POST') {
+      let raw = ''; for await (const chunk of request) raw += chunk;
+      const body = JSON.parse(raw); constraintRuleQueries.push({ query: url.search, body });
+      return json(response, 200, { Success: true, RecordCount: constraintRules.length, Data: constraintRules.slice(body.Skip, body.Skip + body.Limit), StatusCode: 'OK' });
+    }
+    const ruleMatch = url.pathname.match(/^\/api\/revenue-admin\/v1\/constraint-rules\/([^/]+)\/(conditions|actions)$/);
+    if (ruleMatch) {
+      if (ruleMatch[2] === 'conditions') {
+        assert.equal(url.searchParams.get('sort'), 'asc(Sequence)');
+        if (ruleMatch[1] === 'cr-2') return json(response, 500, { Message: 'Conditions unavailable' });
+        return json(response, 200, constraintConditions(ruleMatch[1]));
+      }
+      return json(response, 200, constraintActions(ruleMatch[1]));
     }
     const fieldExpressionMatch = url.pathname.match(/^\/api\/revenue-admin\/v1\/field-expressions\/([^/]+)$/);
     if (fieldExpressionMatch) {
@@ -398,7 +427,7 @@ test('usage scan pages field expressions with Id/Name only, resolves relationshi
   const collector = result.coverage.collectors.find((item) => item.key === 'fieldExpressions');
   assert.deepEqual([collector.status, collector.matches], ['partial', 5]);
   assert.ok(!result.fieldExpressions.some((item) => item.recordId === 'fe-8'), 'Attribute.TargetField is a product attribute, not Object250.TargetField');
-  assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'customCode']);
+  assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'constraintRules', 'customCode']);
   assert.ok(result.limitations.some((text) => /1 field expression\(s\) could not be read/.test(text)));
 });
 
@@ -434,7 +463,7 @@ test('product attributes are offered in object search, listed from Attribute rec
   ]);
   assert.equal(result.fieldExpressions[0].conditionScope, 'Header');
   assert.equal(result.fieldExpressions[0].viewUrl, `${upstreamUrl}/cadmin/field-expression/fe-11`);
-  assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'customCode']);
+  assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'constraintRules', 'customCode']);
   assert.deepEqual(result.coverage.collectors.slice(0, 3).map((item) => item.status), ['not applicable', 'partial', 'partial']);
   assert.equal(result.coverage.attributesScanned, 150);
   assert.equal(result.coverage.workflowsScanned, 203);
@@ -458,4 +487,53 @@ test('workflow matcher in attribute mode: Attribute./AttributeValue. exact, key 
   assert.deepEqual(find(workflow('( RLM_Price_c > 10 )', '[]'), 'RLM_Price_c'), [['WorkflowCondition', 'Condition', 'Probable']]);
   assert.deepEqual(find(workflow('( Old_RLM_Price_c > 10 )', '[{"Key":"RLM_Price","Value":"1"}]'), 'RLM_Price_c'), [], 'partial names do not match');
   assert.deepEqual(findFieldInWorkflow(workflow('( Proposal.RLM_Price_c > 10 )', '[]'), 'Proposal', 'RLM_Price_c').map((item) => item.confidence), ['Exact'], 'field mode unchanged');
+});
+
+test('constraint rule matcher reads the live condition and action shapes', () => {
+  // Condition and action of "Pink Samurais Test Product" on preview-rls09.
+  const condition = { Id: 'ba69', Name: 'Pink Samurais Test Product Condition 1', CreatedBy: { Name: 'Mayank Admin Shah' },
+    ConditionCriteria: '{"ObjectName":"LineItem","ObjectLabel":"LineItem","searchText":null,"filter":{"predicates":[{"RowNum":1,"FieldValue":"New","FieldType":"PICKLIST","FieldName":"LineStatus","FieldLabel":"Line Status","CompOper":"equal to","BoolOper":"AND","PicklistName":"LineStatusPickList","ObjectName":"LineItem","ObjectLabel":"Line Item","LookupObjectName":null,"OptionValues":[{"key":"New","label":"New"},{"key":"Existing","label":"Existing"}],"RHSFieldLabel":null,"RHSFieldType":null}],"hasRHSFields":false,"condExpr":"1","childFilter":null},"fields":[],"extFields":[],"exprStr":"(Line Status equal to New)","logicEnabled":false}',
+    ConstraintRule: { Id: '8ed5', Name: 'Pink Samurais Test Product' }, MatchRule: 'Match Any In Group', Product: { Id: 'c6ac', Name: 'Ram Standalone 3' },
+    ProductFieldA: null, ProductFieldOperatorA: 'equal to', ProductFieldValueA: null, ProductScope: 'Product', Sequence: 1 };
+  const action = { Id: '8109', Name: 'Pink Samurais Test Product Action 1', ActionCriteria: null, ActionDisposition: 'Warning', ActionIntent: 'Auto Include', ActionType: 'Inclusion',
+    Message: 'Pink Samurais Test Product CR - {1} Auto added due to {0}', Product: { Id: '81b3', Name: 'Ram Standalone 4' }, ProductScope: 'Product', ActionExpression: null };
+  assert.deepEqual(findFieldInConstraintCondition(condition, 'LineItem', 'LineStatus'), { name: 'Pink Samurais Test Product Condition 1', confidence: 'Exact', snippet: '(Line Status equal to New)' });
+  assert.equal(findFieldInConstraintCondition(condition, 'Proposal', 'LineStatus'), null, 'the predicate belongs to LineItem');
+  assert.equal(findFieldInConstraintCondition(condition, 'LineItem', 'Existing'), null, 'picklist options are not fields');
+  assert.equal(findFieldInConstraintCondition(condition, 'LineItem', 'Name'), null, 'names and audit fields are not fields');
+  assert.equal(findFieldInConstraintAction(action, 'LineItem', 'LineStatus'), null);
+  assert.equal(findFieldInConstraintAction(action, 'Product', 'Name'), null, 'product names and messages are not references');
+  assert.deepEqual(findFieldInConstraintCondition({ Name: 'c', ProductFieldA: 'Family', ProductFieldOperatorA: 'equal to', ProductFieldValueA: 'Hardware' }, 'Product', 'Family'), { name: 'c', confidence: 'Exact', snippet: 'Product.Family equal to Hardware' });
+  assert.deepEqual(findFieldInConstraintAction({ Name: 'a', ActionExpression: 'LineItem.Quantity > 2' }, 'LineItem', 'Quantity'), { name: 'a', confidence: 'Exact', snippet: 'LineItem.Quantity > 2' });
+  assert.equal(findFieldInConstraintAction({ Name: 'a', ActionExpression: 'Asset.Quantity > 2' }, 'LineItem', 'Quantity'), null);
+  // Attribute mode.
+  const attrCondition = { Name: 'ac', ConditionCriteria: JSON.stringify({ ObjectName: 'LineItem', filter: { predicates: [{ FieldName: 'Internet_Speed__c', ObjectName: 'LineItemAttributeValue' }] }, exprStr: '(Internet Speed equal to 25 Mbps)' }) };
+  assert.equal(findFieldInConstraintCondition(attrCondition, 'Attribute', 'Internet_Speed_c', { attribute: true }).confidence, 'Exact');
+  const bareCondition = { Name: 'bc', ConditionCriteria: JSON.stringify({ ObjectName: 'LineItem', filter: { predicates: [{ FieldName: 'Internet_Speed_c', ObjectName: 'LineItem' }] } }) };
+  assert.equal(findFieldInConstraintCondition(bareCondition, 'Attribute', 'Internet_Speed_c', { attribute: true }).confidence, 'Probable');
+  assert.equal(findFieldInConstraintAction({ Name: 'x', ActionExpression: '$.Attribute.Internet_Speed_c == 1' }, 'Attribute', 'Internet_Speed_c', { attribute: true }).confidence, 'Exact');
+});
+
+test('usage scan reads constraint rules, their conditions and actions, and tolerates an unreadable rule', async () => {
+  const before = constraintRuleQueries.length;
+  const result = await (await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }))).json();
+  const queries = constraintRuleQueries.slice(before);
+  assert.equal(queries.length, 1); assert.match(queries[0].query, /includeTotalCount=true/);
+  assert.deepEqual(queries[0].body, { ObjectName: 'ConstraintRule', Criteria: '', Select: ['Id', 'Name', 'Type', 'IsActive'], Skip: 0, Limit: 100, Sort: { FieldName: 'Id', OrderBy: 'Ascending' } });
+  assert.equal(result.coverage.constraintRulesScanned, 4);
+  assert.deepEqual(result.constraintRules.map((item) => [item.ruleName, item.usage, item.confidence, item.active, item.conditions.map((c) => c.name), item.actions.length]), [['Rule 0', 'Condition', 'Exact', true, ['Rule 0 Condition 1'], 0]]);
+  assert.equal(result.constraintRules[0].viewUrl, `${upstreamUrl}/cadmin/constraint-rule/cr-0`);
+  assert.equal(result.constraintRules[0].conditions[0].snippet, '(TargetField equal to New)');
+  const collector = result.coverage.collectors.find((item) => item.key === 'constraintRules');
+  assert.deepEqual([collector.status, collector.matches], ['partial', 1]);
+  assert.ok(result.limitations.some((text) => /1 constraint rule\(s\) could not be fully read.*Rule 2/.test(text)));
+
+  const attributeScan = await (await post('/api/platform/usage-scan', credentials({ objectName: 'Attribute', kind: 'attribute', fieldName: 'Internet_Speed_c' }))).json();
+  assert.deepEqual(attributeScan.constraintRules.map((item) => [item.ruleName, item.usage, item.confidence, item.active]), [['Rule 1', 'Action', 'Exact', false]]);
+});
+
+test('constraint rules section sits below field expressions and above custom code', async () => {
+  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.ok(html.indexOf('id="fieldexpression-section"') < html.indexOf('id="constraintrule-section"'));
+  assert.ok(html.indexOf('id="constraintrule-section"') < html.indexOf('id="customcode-section"'));
 });

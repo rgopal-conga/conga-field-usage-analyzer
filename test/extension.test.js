@@ -87,6 +87,9 @@ function tenantFetch() {
     if (pathname.endsWith('/dependency-fields')) return json({ Success: true, Data: [] });
     if (pathname === '/api/workflow/v1/query/WorkflowDefinition') return json({ Data: [], TotalCount: 0 });
     if (pathname === '/api/search/v1/objects/FieldExpression/query') return json([{ Id: 'fe-1', Name: 'Status filter' }, { Id: 'fe-2', Name: 'Speed' }]);
+    if (pathname === '/api/search/v1/objects/ConstraintRule/query') return json({ Success: true, RecordCount: 1, Data: [{ Id: 'cr-1', Name: 'Status rule', Type: 'Validation', IsActive: true }], StatusCode: 'OK' });
+    if (pathname === '/api/revenue-admin/v1/constraint-rules/cr-1/conditions') return json([{ Id: 'c1', Name: 'Status rule Condition 1', ConditionCriteria: JSON.stringify({ ObjectName: 'Agreement', filter: { predicates: [{ FieldName: 'Status', ObjectName: 'Agreement' }] }, exprStr: '(Status equal to Active)' }) }]);
+    if (pathname === '/api/revenue-admin/v1/constraint-rules/cr-1/actions') return json([]);
     if (pathname === '/api/search/v1/objects/Attribute/query') return json([{ Id: 'at-1', Name: 'Internet_Speed_c', DisplayName: 'Internet Speed', Type: 'Picklist' }]);
     if (pathname === '/api/revenue-admin/v1/field-expressions/fe-2') return json({ Id: 'fe-2', Name: 'Speed', IsActive: true, ExpressionType: 'Field Update', UpdateObject: 'LineItem', SourceObject: 'LineItem', UpdateField: 'Attribute.Internet_Speed_c', ConditionScope: 'Product', Product: { Id: 'p', Name: 'Internet Service' }, Expression: "'25 Mbps'" });
     if (pathname === '/api/revenue-admin/v1/field-expressions/fe-1') return json({ Id: 'fe-1', Name: 'Status filter', IsActive: true, ExpressionType: 'Field Update', EvaluationContext: 'Record Update', UpdateObject: 'Agreement', SourceObject: 'Agreement', UpdateField: 'Stage', ConditionExpression: '$.Status == "Active"', Expression: "'Open'" });
@@ -123,6 +126,7 @@ test('the built extension core runs the full flow in-page against the tenant', a
   assert.deepEqual(scan.body.formulaDependencies.map((item) => item.fieldName), ['StatusLabel']);
   assert.deepEqual(scan.body.fieldExpressions.map((item) => [item.expressionName, item.usage, item.viewUrl]), [['Status filter', 'Condition', 'https://rls.congacloud.com/cadmin/field-expression/fe-1']]);
   assert.equal(scan.body.customCode.length, 1, 'ZIP fallback is decompressed in-page');
+  assert.deepEqual(scan.body.constraintRules.map((item) => [item.ruleName, item.usage, item.confidence, item.viewUrl]), [['Status rule', 'Condition', 'Exact', 'https://rls.congacloud.com/cadmin/constraint-rule/cr-1']]);
 
   const attributes = await api.handle({ method: 'POST', pathname: '/api/platform/fields/search', body: { ...connection, objectName: 'Attribute', kind: 'attribute', query: 'speed' } });
   assert.deepEqual(attributes.body.items.map((item) => item.name), ['Internet_Speed_c']);

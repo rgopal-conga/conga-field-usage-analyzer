@@ -251,6 +251,33 @@ export class CongaClient {
     return this.queryAllRecords('FieldExpression', ['Id', 'Name'], 'field expression');
   }
 
+  // Every CPQ Constraint Rule (active and inactive): Id, Name, Type, IsActive. Conditions and actions are read per rule.
+  async listConstraintRules() {
+    return this.queryAllRecords('ConstraintRule', ['Id', 'Name', 'Type', 'IsActive'], 'constraint rule');
+  }
+
+  static assertRecordId(id, label) {
+    if (typeof id !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(id)) throw new CongaApiError(`${label} id is invalid`, 400);
+  }
+
+  // GET /api/revenue-admin/v1/constraint-rules/{id}/conditions?sort=asc(Sequence) — bare array of conditions.
+  async getConstraintRuleConditions(ruleId) {
+    CongaClient.assertRecordId(ruleId, 'Constraint rule');
+    return this.listPayload(await this.request(`/api/revenue-admin/v1/constraint-rules/${encodeURIComponent(ruleId)}/conditions`, { sort: 'asc(Sequence)' }), 'constraint rule condition');
+  }
+
+  // GET /api/revenue-admin/v1/constraint-rules/{id}/actions — bare array of actions.
+  async getConstraintRuleActions(ruleId) {
+    CongaClient.assertRecordId(ruleId, 'Constraint rule');
+    return this.listPayload(await this.request(`/api/revenue-admin/v1/constraint-rules/${encodeURIComponent(ruleId)}/actions`), 'constraint rule action');
+  }
+
+  listPayload(payload, label) {
+    const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data') ?? [];
+    if (!Array.isArray(data)) throw new CongaApiError(`Unexpected ${label} response shape`, 502);
+    return data;
+  }
+
   // Product attributes are data records of the Attribute object, not schema fields. Shaped like fields
   // (name = API name, label = DisplayName, type) so the picker and scan treat them the same way.
   async listAttributes() {

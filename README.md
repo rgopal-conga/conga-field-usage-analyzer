@@ -106,7 +106,16 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
      - Formula dependencies are not applicable (shown in Scan coverage).
      - In a normal field scan, `Attribute.X` / `AttributeValue.X` paths are never matched unless a real lookup with that name resolves to the selected object.
 
-4. **Custom code references**
+4. **Constraint rule references** (CPQ Constraint Rules)
+   - Pages through `POST /api/search/v1/objects/ConstraintRule/query?includeTotalCount=true` selecting `Id`, `Name`, `Type`, `IsActive` (sorted by `Id`).
+   - For each rule (five at a time) reads `GET /api/revenue-admin/v1/constraint-rules/{id}/conditions?sort=asc(Sequence)` and `GET /api/revenue-admin/v1/constraint-rules/{id}/actions`.
+   - Conditions: `ConditionCriteria` (a JSON string) is parsed; every predicate `FieldName` is matched against the field with its `ObjectName` (green when it is the selected object; a right-hand-side field reference is orange). `ProductFieldA`–`D` are Product fields. Actions: `ActionCriteria` (same format) and `ActionExpression` (`Object.Field` green, bare name orange).
+   - Product attributes: a predicate on an attribute object (e.g. `LineItemAttributeValue`) or `Attribute.`/`AttributeValue.` paths → green; the bare attribute name on another object → orange.
+   - Picklist options, `exprStr`, `Message`, names and audit fields are never matches; `exprStr` is shown as the readable summary.
+   - Section below **Field expressions**: Constraint rule name (linked to `{platformUrl}/cadmin/constraint-rule/{id}`, override with `CONGA_CONSTRAINT_RULE_URL_TEMPLATE`), Is active, Type, Used in condition, Used in action (matching condition/action names, coloured green/orange, with their criteria).
+   - A rule whose conditions or actions cannot be read marks the collector `partial`; a failing list call marks only this collector `failed`.
+
+5. **Custom code references**
    - Lists every project with `GET /api/extensibility/v1/customcode`.
    - Reads each project's source from `GET /api/extensibility/v1/customcode/{name}` (`Documents[].SourceCode`), three at a time. If a project returns no documents, it falls back to `GET /api/extensibility/v1/customcode/{name}/download` and reads the `.cs`/text files from the ZIP in memory (`bin/` and `obj/` are skipped).
    - Works out how each class runs, shown as **Runs as**:

@@ -29,7 +29,7 @@ export function createApi({ fetchImpl, platformUrlOptions = {}, linkTemplates, e
     'GET /api/config': async () => ({
       authMode: 'bearer-token', storage: 'none', runtime,
       urlPolicy: publicUrlPolicy(env, platformUrlOptions),
-      referenceLinks: { field: Boolean(templates.field), workflow: Boolean(templates.workflow), fieldExpression: Boolean(templates.fieldExpression), customCode: Boolean(templates.customCode) }
+      referenceLinks: { field: Boolean(templates.field), workflow: Boolean(templates.workflow), fieldExpression: Boolean(templates.fieldExpression), constraintRule: Boolean(templates.constraintRule), customCode: Boolean(templates.customCode) }
     }),
     'POST /api/platform/validate': async (input) => {
       const connection = clientFromInput(input, doFetch, platformUrlOptions);

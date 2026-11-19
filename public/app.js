@@ -158,11 +158,12 @@ function renderUsage(result) {
   const workflows = result.workflows ?? [];
   const fieldExpressions = result.fieldExpressions ?? [];
   const customCode = result.customCode ?? [];
-  const total = result.formulaDependencies.length + workflows.length + fieldExpressions.length + customCode.length;
+  const constraintRules = result.constraintRules ?? [];
+  const total = result.formulaDependencies.length + workflows.length + fieldExpressions.length + constraintRules.length + customCode.length;
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
     ...result.coverage.collectors.map((item) => item.status === 'not applicable' ? `${item.label}: not applicable to product attributes` : `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    result.field.kind === 'attribute' ? `Scanned: ${result.coverage.attributesScanned ?? 0} product attributes, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)` : `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
+    result.field.kind === 'attribute' ? `Scanned: ${result.coverage.attributesScanned ?? 0} product attributes, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)` : `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#formula-section').innerHTML = usageSection('Formula dependencies', result.formulaDependencies.length, 'No formula dependencies found',
@@ -178,7 +179,20 @@ function renderUsage(result) {
   $('#fieldexpression-section').innerHTML = usageSection('Field expressions', fieldExpressions.length, 'No field expression references found',
     fieldExpressionLegend + table(['Field expression name', 'Is active', 'Expression type', 'Scope', 'Filter expression', 'Update object', 'Update field', 'Update expression'],
       fieldExpressions.map(fieldExpressionRow)));
+  $('#constraintrule-section').innerHTML = usageSection('Constraint rules', constraintRules.length, 'No constraint rule references found',
+    fieldExpressionLegend + table(['Constraint rule name', 'Is active', 'Type', 'Used in condition', 'Used in action'], constraintRules.map(constraintRuleRow)));
   renderCustomCode(customCode);
+}
+// One Constraint Rule row: each matching condition/action is listed by name with its criteria, coloured by match.
+function constraintRuleRow(item) {
+  const cell = (matches) => (matches ?? []).map((match) => `<div><span class="field-match field-match-${escapeHtml(String(match.confidence).toLowerCase())}"><strong>${escapeHtml(match.name)}</strong></span>${match.snippet ? `<div><code>${escapeHtml(match.snippet)}</code></div>` : ''}</div>`).join('');
+  return [
+    referenceTitle(item.ruleName, item.viewUrl),
+    item.active === null || item.active === undefined ? '' : item.active ? 'Yes' : 'No',
+    escapeHtml(item.ruleType ?? ''),
+    cell(item.conditions),
+    cell(item.actions)
+  ];
 }
 // One Field Expression row. The cell that references the scanned field is highlighted:
 // green = exact match, orange = probable match (see the legend above the table). Blank values stay blank.

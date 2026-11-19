@@ -35,6 +35,7 @@ Standalone backend — request scope only
   ├─ formula dependency collector
   ├─ workflow reference collector
   ├─ field expression reference collector (CPQ)
+  ├─ constraint rule reference collector (CPQ)
   ├─ custom code collector (source held in request memory only;
   │    Service Hook rules read only for "Runs as" wiring)
   └─ no session, cookie, file, database, or cache
@@ -48,6 +49,9 @@ Standalone backend — request scope only
           ├─ POST /api/search/v1/objects/FieldExpression/query?includeTotalCount=true
           ├─ GET /api/revenue-admin/v1/field-expressions/{id}
           ├─ POST /api/search/v1/objects/Attribute/query?includeTotalCount=true   (product attributes)
+          ├─ POST /api/search/v1/objects/ConstraintRule/query?includeTotalCount=true
+          ├─ GET /api/revenue-admin/v1/constraint-rules/{id}/conditions?sort=asc(Sequence)
+          ├─ GET /api/revenue-admin/v1/constraint-rules/{id}/actions
           ├─ GET /api/extensibility/v1/customcode
           ├─ GET /api/extensibility/v1/customcode/{name}
           ├─ GET /api/extensibility/v1/customcode/{name}/download   (ZIP fallback)
@@ -72,6 +76,8 @@ Search limits affect only returned matches, not upstream coverage. Object search
 ## Collector fidelity
 
 Field expression matches read only `UpdateField` (from `UpdateObject`), `ConditionExpression`/`Expression` (`$.Path` from `SourceObject`, quoted literals ignored) and `GroupByField`/`ParentField`. Paths are resolved through lookup fields in the tenant schemas: resolving to the selected object, or naming it as `Object.Field`, is Exact; an unresolved relationship, a bare name without `$.`, or a label-valued `UpdateField` equal to the field label is Probable. Record metadata, scope and product names are never matched. Product attributes are Attribute records, selected through a Product Attributes pseudo-object (`kind: 'attribute'` on field search and usage scan); their scan matches the attribute API name (`__c` = `_c`) in Field Expressions, workflows and custom code, with `Attribute.`/`AttributeValue.` paths labelled Exact and no object context required, and a field scan never treats those paths as field references unless a real lookup resolves.
+
+Constraint rule matches come from the parsed `ConditionCriteria`/`ActionCriteria` predicates (`FieldName` with its `ObjectName`), `ProductFieldA`–`D` (Product fields) and `ActionExpression`; a predicate on the selected object or `Object.Field` is Exact, a right-hand-side field reference or bare expression name is Probable.
 
 Formula relationships derived from `ExpressionDependency` and dependency metadata are labeled Exact. Service Hooks are not reported as a separate collector: the code each hook runs is checked by the custom code collector, and the hook is shown under "Runs as". A hook on the selected object whose condition contains a boundary-safe match for `Object.Field` or `Field` is added to the custom code results with access Condition, labelled Exact.
 
