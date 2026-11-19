@@ -128,7 +128,7 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
    - Reads each project's source from `GET /api/extensibility/v1/customcode/{name}` (`Documents[].SourceCode`), three at a time. If a project returns no documents, it falls back to `GET /api/extensibility/v1/customcode/{name}/download` and reads the `.cs`/text files from the ZIP in memory (`bin/` and `obj/` are skipped).
    - Works out how each class runs, shown as **Runs as**:
      - Service Hook rules (`GET /api/extensibility/v1/servicehooks/rules`, all pages) → `CustomCodeDetails.ProjectName/ClassName`.
-     - Callbacks → `GET /api/extensibility/v1/callbacks` → `CustomCodeMapping.ProjectName/ClassName`.
+     - Callbacks → `GET /api/extensibility/v1/callbacks/modules/Revenue` → `CustomCodeMapping.ProjectName/ClassName`. Shown in the **Callback** column (callback short name, full name on hover; blank when none) with a **Callback** filter including "(No callback)"; "Runs as" keeps Service Hooks and Custom APIs.
      - Custom APIs → `GET /api/extensibility/v1/customcode/api-resource` and `.../{resource}/uri-entries` → `CustomCodeName`, `FullyQualifiedClassName`, `MethodName`.
    - Analyses C# as text. Comments are ignored, and string literals and identifiers are matched as whole tokens:
      - `"Object.Field"` inside a string → **Exact**.

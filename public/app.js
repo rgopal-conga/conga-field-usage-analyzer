@@ -1,4 +1,4 @@
-import { projectLabel, accessLabel, filterOptions, searchTerms, customCodeRowVisible } from './resultFilters.js';
+import { projectLabel, accessLabel, callbackLabels, filterOptions, searchTerms, customCodeRowVisible } from './resultFilters.js';
 
 const state = {
   config: null, connection: null,
@@ -215,7 +215,7 @@ function fieldExpressionRow(item) {
 }
 const fieldExpressionLegend = '<div class="match-legend"><span><i class="field-match-exact"></i>Exact match</span><span><i class="field-match-probable"></i>Probable match</span></div>';
 function runsAsText(item) {
-  if (!item.runsAs || !item.runsAs.length) return '<span class="muted">Not linked to a hook, callback or Custom API</span>';
+  if (!item.runsAs || !item.runsAs.length) return '<span class="muted">Not linked to a hook or Custom API</span>';
   return item.runsAs.map((entry) => `<div><strong>${escapeHtml(entry.type)}</strong> ${escapeHtml(entry.name)}${entry.objectName ? ` <span class="muted">on ${escapeHtml(entry.objectName)}</span>` : ''}${entry.active === false ? ' <span class="muted">(inactive)</span>' : ''}</div>`).join('');
 }
 function confidenceBadge(value) { return `<span class="confidence confidence-${escapeHtml(String(value).toLowerCase())}">${escapeHtml(value)}</span>`; }
@@ -229,6 +229,7 @@ function filterCustomCode(section, items) {
   const filters = {
     project: section.querySelector('.table-filter-project')?.value ?? '',
     access: section.querySelector('.table-filter-access')?.value ?? '',
+    callback: section.querySelector('.table-filter-callback')?.value ?? '',
     terms: searchTerms(section.querySelector('.table-search-input')?.value)
   };
   const rows = [...section.querySelectorAll('tbody tr')];
@@ -238,7 +239,7 @@ function filterCustomCode(section, items) {
     row.classList.toggle('hidden', !visible);
     if (visible) shown += 1;
   });
-  const filtered = filters.project || filters.access || filters.terms.length;
+  const filtered = filters.project || filters.access || filters.callback || filters.terms.length;
   section.querySelector('.table-search-count').textContent = filtered ? `${shown} of ${rows.length} shown` : '';
   section.querySelector('.table-search-empty').classList.toggle('hidden', shown > 0);
   section.querySelector('.table-filter-clear').classList.toggle('hidden', !filtered);
@@ -252,13 +253,15 @@ function renderCustomCode(items) {
     '<div class="search-box"><span class="muted" aria-hidden="true">⌕</span><input type="search" class="table-search-input" placeholder="Search custom code results" aria-label="Search custom code results" autocomplete="off" spellcheck="false"></div>' +
     filterSelect('table-filter-project', 'Project', 'All projects', filterOptions(items, projectLabel)) +
     filterSelect('table-filter-access', 'Access', 'All access', filterOptions(items, accessLabel)) +
+    filterSelect('table-filter-callback', 'Callback', 'All callbacks', filterOptions(items, callbackLabels)) +
     '<button type="button" class="link-button table-filter-clear hidden">Clear filters</button>' +
     '<span class="table-search-count muted"></span></div>';
   const empty = '<div class="table-search-empty muted hidden">No results match your filters.</div>';
   $('#customcode-section').innerHTML = usageSection('Custom code', items.length, 'No custom code references found', controls +
-    table(['Project / file', 'Class · method', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
+    table(['Project / file', 'Class · method', 'Callback', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
       customCodeLocation(item),
       escapeHtml([item.className, item.methodName].filter(Boolean).join(' · ') || '—'),
+      (item.callbacks ?? []).map((entry) => `<div${entry.fullName ? ` title="${escapeHtml(entry.fullName)}"` : ''}>${escapeHtml(entry.name)}</div>`).join(''),
       escapeHtml(item.access),
       confidenceBadge(item.confidence),
       runsAsText(item),
@@ -270,10 +273,12 @@ function renderCustomCode(items) {
   section.querySelector('.table-search-input').addEventListener('input', apply);
   section.querySelector('.table-filter-project').addEventListener('change', apply);
   section.querySelector('.table-filter-access').addEventListener('change', apply);
+  section.querySelector('.table-filter-callback').addEventListener('change', apply);
   section.querySelector('.table-filter-clear').addEventListener('click', () => {
     section.querySelector('.table-search-input').value = '';
     section.querySelector('.table-filter-project').value = '';
     section.querySelector('.table-filter-access').value = '';
+    section.querySelector('.table-filter-callback').value = '';
     apply();
   });
 }

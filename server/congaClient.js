@@ -377,9 +377,10 @@ export class CongaClient {
     return this.requestBinary(`/api/extensibility/v1/customcode/${encodeURIComponent(projectName)}/download`);
   }
 
-  // GET /api/extensibility/v1/callbacks — callback contracts and the project/class mapped to each.
+  // GET /api/extensibility/v1/callbacks/modules/Revenue — Revenue callback contracts and the project/class mapped to each
+  // ({ Success, Data: [{ CallbackName, CallbackShortName, CallbackDisplayName, CallbackCategoryName, CustomCodeMapping: { ProjectName, ClassName } }] }).
   async listCallbackContracts() {
-    const payload = await this.request('/api/extensibility/v1/callbacks');
+    const payload = await this.request('/api/extensibility/v1/callbacks/modules/Revenue');
     const data = Array.isArray(payload) ? payload : pick(payload, 'Data', 'data') ?? [];
     if (!Array.isArray(data)) throw new CongaApiError('Unexpected callback response shape', 502);
     return data;

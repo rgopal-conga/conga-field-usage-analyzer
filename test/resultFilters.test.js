@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { NO_PROJECT, projectLabel, accessLabel, filterOptions, searchTerms, customCodeRowVisible } from '../public/resultFilters.js';
+import { NO_PROJECT, NO_CALLBACK, projectLabel, accessLabel, callbackLabels, filterOptions, searchTerms, customCodeRowVisible } from '../public/resultFilters.js';
 
 const items = [
   { projectName: 'QuoteHooks', access: 'Read' },
@@ -32,10 +32,24 @@ test('rows match project, access and every search word together', () => {
   assert.equal(customCodeRowVisible(items[0], 'QuoteHooks Pricing.cs Read', { project: 'QuoteHooks', terms: searchTerms('pricing write') }), false);
 });
 
+test('callback filter lists mapped callbacks with (No callback) last and filters rows', () => {
+  const rows = [
+    { projectName: 'A', callbacks: [{ name: 'IConfigCallback' }] },
+    { projectName: 'B', callbacks: [{ name: 'IValidationCallback' }, { name: 'IDisplayActionCallback' }] },
+    { projectName: 'C', callbacks: [] },
+    { projectName: 'D' }
+  ];
+  assert.deepEqual(filterOptions(rows, callbackLabels), [
+    { value: 'IConfigCallback', count: 1 }, { value: 'IDisplayActionCallback', count: 1 }, { value: 'IValidationCallback', count: 1 }, { value: NO_CALLBACK, count: 2 }
+  ]);
+  assert.deepEqual(rows.map((item) => customCodeRowVisible(item, '', { callback: 'IDisplayActionCallback' })), [false, true, false, false]);
+  assert.deepEqual(rows.map((item) => customCodeRowVisible(item, '', { callback: NO_CALLBACK })), [false, false, true, true]);
+});
+
 test('results table wires Project and Access filters into the Custom code section', async () => {
   const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(app, /from '\.\/resultFilters\.js'/);
-  for (const name of ['table-filter-project', 'table-filter-access', 'table-filter-clear', 'table-search-input']) assert.match(app, new RegExp(name));
+  for (const name of ['table-filter-project', 'table-filter-access', 'table-filter-callback', 'table-filter-clear', 'table-search-input']) assert.match(app, new RegExp(name));
   const filters = await readFile(new URL('../public/resultFilters.js', import.meta.url), 'utf8');
   assert.doesNotMatch(filters, /localStorage|sessionStorage|indexedDB|document\.cookie|caches\.|chrome\.storage/);
 });

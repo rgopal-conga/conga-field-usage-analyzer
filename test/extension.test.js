@@ -96,7 +96,7 @@ function tenantFetch() {
     if (pathname === '/api/revenue-admin/v1/field-expressions/fe-2') return json({ Id: 'fe-2', Name: 'Speed', IsActive: true, ExpressionType: 'Field Update', UpdateObject: 'LineItem', SourceObject: 'LineItem', UpdateField: 'Attribute.Internet_Speed_c', ConditionScope: 'Product', Product: { Id: 'p', Name: 'Internet Service' }, Expression: "'25 Mbps'" });
     if (pathname === '/api/revenue-admin/v1/field-expressions/fe-1') return json({ Id: 'fe-1', Name: 'Status filter', IsActive: true, ExpressionType: 'Field Update', EvaluationContext: 'Record Update', UpdateObject: 'Agreement', SourceObject: 'Agreement', UpdateField: 'Stage', ConditionExpression: '$.Status == "Active"', Expression: "'Open'" });
     if (pathname === '/api/extensibility/v1/servicehooks/rules') return json({ Success: true, Data: [] });
-    if (pathname === '/api/extensibility/v1/callbacks') return json([]);
+    if (pathname === '/api/extensibility/v1/callbacks/modules/Revenue') return json({ Success: true, Data: [], StatusCode: 'OK' });
     if (pathname === '/api/extensibility/v1/customcode/api-resource') return json([]);
     if (pathname === '/api/extensibility/v1/customcode') return json([{ Name: 'ZipProject' }]);
     if (pathname === '/api/extensibility/v1/customcode/ZipProject') return json({ Data: { Name: 'ZipProject', Documents: [] } });

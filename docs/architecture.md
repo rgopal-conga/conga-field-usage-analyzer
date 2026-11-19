@@ -58,7 +58,7 @@ Standalone backend — request scope only
           ├─ GET /api/extensibility/v1/customcode
           ├─ GET /api/extensibility/v1/customcode/{name}
           ├─ GET /api/extensibility/v1/customcode/{name}/download   (ZIP fallback)
-          ├─ GET /api/extensibility/v1/callbacks
+          ├─ GET /api/extensibility/v1/callbacks/modules/Revenue
           ├─ GET /api/extensibility/v1/customcode/api-resource
           └─ GET /api/extensibility/v1/customcode/api-resource/{name}/uri-entries
                     ▼
