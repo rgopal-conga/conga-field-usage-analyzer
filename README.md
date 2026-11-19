@@ -115,12 +115,12 @@ Because persistent metadata storage is prohibited, each search re-reads the requ
    - Section below **Field expressions**: Constraint rule name (linked to `{platformUrl}/cadmin/constraint-rules/edit/{id}`, override with `CONGA_CONSTRAINT_RULE_URL_TEMPLATE`), Is active, Type, Used in condition, Used in action (matching condition/action names, coloured green/orange, with their criteria).
    - A rule whose conditions or actions cannot be read marks the collector `partial`; a failing list call marks only this collector `failed`.
 
-5. **Attribute-based constraint rule references** (CPQ)
+5. **Attribute-based constraint rule references** (CPQ, product attribute scans only)
    - Pages through `POST /api/search/v1/objects/AttributeConstraintRule/query?includeTotalCount=true` selecting `Id`, `Name`, `RuleType`, `IsActive` (sorted by `Id`).
    - For each rule (five at a time) reads `GET /api/revenue-admin/v1/attribute-constraint-rules/{id}/entries`.
-   - Conditions: each entry's `ConditionAttributes[].Name` (the attribute API name, `__c`/`_c` treated as the same) → green, shown as `Name Operator Value`. Actions: each entry's `TargetFields` (array, JSON string or comma list) → green for the attribute name; in a normal field scan only an explicit `Object.Field` on the selected object matches.
-   - Condition values, `ActionProduct`, names and audit fields are never matches.
-   - Section below **Constraint rules**: rule name (linked to `{platformUrl}/cadmin/attribute-based-constraint-rules/edit/{id}`, override with `CONGA_ATTRIBUTE_CONSTRAINT_RULE_URL_TEMPLATE`), Is active, Type (`RuleType`), Used in condition, Used in action.
+   - Each entry's `ConditionAttributes[].Name` is matched on the attribute API name (`__c`/`_c` treated as the same; `Attribute.`/`AttributeValue.` prefix allowed) → green, shown as `Name Operator Value`.
+   - Condition values, the action side (`ActionProduct`, `ActionIntent`, `TargetFields`), names and audit fields are not matched.
+   - Section below **Constraint rules** (shown for product attribute scans; normal field scans do not call these APIs): rule name (linked to `{platformUrl}/cadmin/attribute-based-constraint-rules/edit/{id}`, override with `CONGA_ATTRIBUTE_CONSTRAINT_RULE_URL_TEMPLATE`), Is active, Type (`RuleType`), Used in condition.
    - A rule whose entries cannot be read marks the collector `partial`; a failing list call marks only this collector `failed`.
 
 6. **Custom code references**

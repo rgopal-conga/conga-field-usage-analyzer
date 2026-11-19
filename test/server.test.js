@@ -8,7 +8,7 @@ import { buildReferenceUrl, referenceLinkTemplates } from '../server/referenceLi
 import { attributeNameVariants, findFieldInWorkflow } from '../server/workflowScanner.js';
 import { findFieldInFieldExpression } from '../server/fieldExpressionScanner.js';
 import { findFieldInConstraintAction, findFieldInConstraintCondition } from '../server/constraintRuleScanner.js';
-import { findFieldInAttributeRuleAction, findFieldInAttributeRuleCondition } from '../server/attributeConstraintRuleScanner.js';
+import { findFieldInAttributeRuleCondition } from '../server/attributeConstraintRuleScanner.js';
 
 let upstream; let app; let upstreamUrl; let baseUrl;
 const observed = { apiHeaders: [], requests: [] };
@@ -93,7 +93,7 @@ const criteria = (objectName, fieldName, fieldObject = objectName) => JSON.strin
 const constraintRules = Array.from({ length: 4 }, (_, index) => ({ Id: `cr-${index}`, Name: `Rule ${index}`, Type: index === 3 ? null : 'Inclusion', IsActive: index !== 1 }));
 const constraintRuleQueries = [];
 // Attribute-based constraint rules, in the live envelope shape. acr-0: the live "Ram Test" entry (inactive);
-// acr-1: TargetFields name the attribute and Object250.TargetField; acr-2: entries fail to load.
+// acr-1: AttributeValue.-prefixed condition; its TargetFields also name the attribute (actions are not reported); acr-2: entries fail to load.
 const attributeRules = [
   { Id: 'acr-0', Name: 'Ram Test', RuleType: 'Inclusion', Description: null, IsActive: false },
   { Id: 'acr-1', Name: 'Speed targets', RuleType: 'Exclusion', Description: null, IsActive: true },
@@ -102,7 +102,7 @@ const attributeRules = [
 const attributeRuleQueries = [];
 function attributeRuleEntries(id) {
   if (id === 'acr-0') return [{ Id: 'e0', Name: 'Ram Test Entry 1', AttributeConstraintRule: { Id: 'acr-0', Name: 'Ram Test' }, ConditionAttributes: [{ Name: 'Internet_Speed_c', Operator: 'equal to', Type: 'Discrete', Value: '10 Mbps' }, { Name: 'RLM_Cost_c', Operator: 'equal to', Type: 'Discrete', Value: '100' }], ActionProduct: { Id: 'p2', Name: 'Ram Standalone 2' }, ActionIntent: 'Auto Include', TargetFields: null, Sequence: 1 }];
-  if (id === 'acr-1') return [{ Id: 'e1', Name: 'Speed targets Entry 1', ConditionAttributes: [{ Name: 'RLM_Cost_c', Operator: 'equal to', Type: 'Discrete', Value: 'TargetField' }], ActionProduct: { Id: 'p3', Name: 'Router' }, ActionIntent: 'Exclude', TargetFields: ['Attribute.Internet_Speed__c', 'Object250.TargetField'], Sequence: 1 }];
+  if (id === 'acr-1') return [{ Id: 'e1', Name: 'Speed targets Entry 1', ConditionAttributes: [{ Name: 'AttributeValue.Internet_Speed__c', Operator: 'not equal to', Type: 'Discrete', Value: '25 Mbps' }], ActionProduct: { Id: 'p3', Name: 'Router' }, ActionIntent: 'Exclude', TargetFields: ['Internet_Speed_c'], Sequence: 1 }];
   return [];
 }
 function constraintConditions(id) {
@@ -451,7 +451,7 @@ test('usage scan pages field expressions with Id/Name only, resolves relationshi
   const collector = result.coverage.collectors.find((item) => item.key === 'fieldExpressions');
   assert.deepEqual([collector.status, collector.matches], ['partial', 5]);
   assert.ok(!result.fieldExpressions.some((item) => item.recordId === 'fe-8'), 'Attribute.TargetField is a product attribute, not Object250.TargetField');
-  assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'constraintRules', 'attributeConstraintRules', 'customCode']);
+  assert.deepEqual(result.coverage.collectors.map((item) => item.key), ['formulaDependencies', 'workflows', 'fieldExpressions', 'constraintRules', 'customCode']);
   assert.ok(result.limitations.some((text) => /1 field expression\(s\) could not be read/.test(text)));
 });
 
@@ -568,13 +568,9 @@ test('attribute-based constraint rule matcher reads the live entry shape', () =>
   assert.deepEqual(findFieldInAttributeRuleCondition(entry, 'Attribute', 'Internet_Speed__c', { attribute: true }), { name: 'Ram Test Entry 1', confidence: 'Exact', snippet: 'Internet_Speed_c equal to 10 Mbps' });
   assert.equal(findFieldInAttributeRuleCondition(entry, 'Attribute', 'Speed_c', { attribute: true }), null, 'whole names only');
   assert.equal(findFieldInAttributeRuleCondition(entry, 'LineItem', 'Internet_Speed_c'), null, 'attribute names never match a schema field');
-  assert.equal(findFieldInAttributeRuleAction(entry, 'Attribute', 'Internet_Speed_c', { attribute: true }), null, 'TargetFields null');
   const values = { Name: 'v', ConditionAttributes: [{ Name: 'RLM_Cost_c', Operator: 'equal to', Value: 'Internet_Speed_c' }] };
   assert.equal(findFieldInAttributeRuleCondition(values, 'Attribute', 'Internet_Speed_c', { attribute: true }), null, 'values are not references');
-  for (const TargetFields of ['Internet_Speed_c, RLM_Cost_c', JSON.stringify([{ Name: 'AttributeValue.Internet_Speed_c' }])]) {
-    assert.equal(findFieldInAttributeRuleAction({ Name: 't', TargetFields }, 'Attribute', 'Internet_Speed_c', { attribute: true }).confidence, 'Exact');
-  }
-  assert.equal(findFieldInAttributeRuleAction({ Name: 't', TargetFields: ['Other.Internet_Speed_c'] }, 'Attribute', 'Internet_Speed_c', { attribute: true }), null);
+  assert.equal(findFieldInAttributeRuleCondition({ Name: 'o', ConditionAttributes: [{ Name: 'Other.Internet_Speed_c' }] }, 'Attribute', 'Internet_Speed_c', { attribute: true }), null);
 });
 
 test('usage scan reads attribute-based constraint rules and their entries, and tolerates an unreadable rule', async () => {
@@ -584,15 +580,17 @@ test('usage scan reads attribute-based constraint rules and their entries, and t
   assert.equal(queries.length, 1); assert.match(queries[0].query, /includeTotalCount=true/);
   assert.deepEqual(queries[0].body, { ObjectName: 'AttributeConstraintRule', Criteria: '', Select: ['Id', 'Name', 'RuleType', 'IsActive'], Skip: 0, Limit: 100, Sort: { FieldName: 'Id', OrderBy: 'Ascending' } });
   assert.equal(result.coverage.attributeConstraintRulesScanned, 3);
-  assert.deepEqual(result.attributeConstraintRules.map((item) => [item.ruleName, item.ruleType, item.active, item.usage, item.conditions.map((c) => c.snippet), item.actions.map((a) => a.snippet)]), [
-    ['Ram Test', 'Inclusion', false, 'Condition', ['Internet_Speed_c equal to 10 Mbps'], []],
-    ['Speed targets', 'Exclusion', true, 'Action', [], ['Exclude Router · Target fields: Attribute.Internet_Speed__c']]
+  assert.deepEqual(result.attributeConstraintRules.map((item) => [item.ruleName, item.ruleType, item.active, item.usage, item.conditions.map((c) => c.snippet), item.actions]), [
+    ['Ram Test', 'Inclusion', false, 'Condition', ['Internet_Speed_c equal to 10 Mbps'], undefined],
+    ['Speed targets', 'Exclusion', true, 'Condition', ['AttributeValue.Internet_Speed__c not equal to 25 Mbps'], undefined]
   ]);
   assert.equal(result.attributeConstraintRules[0].viewUrl, `${upstreamUrl}/cadmin/attribute-based-constraint-rules/edit/acr-0`);
   const collector = result.coverage.collectors.find((item) => item.key === 'attributeConstraintRules');
   assert.deepEqual([collector.status, collector.matches], ['partial', 2]);
   assert.ok(result.limitations.some((text) => /1 attribute-based constraint rule\(s\) could not be read.*Broken rule/.test(text)));
 
+  const fieldQueries = attributeRuleQueries.length;
   const fieldScan = await (await post('/api/platform/usage-scan', credentials({ objectName: 'Object250', fieldName: 'TargetField' }))).json();
-  assert.deepEqual(fieldScan.attributeConstraintRules.map((item) => [item.ruleName, item.usage, item.confidence]), [['Speed targets', 'Action', 'Exact']], 'only an explicit Object250.TargetField; the condition value is ignored');
+  assert.deepEqual(fieldScan.attributeConstraintRules, []);
+  assert.equal(attributeRuleQueries.length, fieldQueries, 'attribute-based rules are not read in a normal field scan');
 });

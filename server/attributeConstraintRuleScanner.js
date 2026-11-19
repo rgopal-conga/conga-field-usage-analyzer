@@ -1,14 +1,11 @@
-// Finds references to a product attribute (or a field) inside CPQ Attribute-Based Constraint Rules.
+// Finds references to a product attribute inside CPQ Attribute-Based Constraint Rules (attribute scans only).
 //
 //   list:    POST /api/search/v1/objects/AttributeConstraintRule/query?includeTotalCount=true   { Success, Data: [{ Id, Name, RuleType, IsActive }] }
 //   entries: GET  /api/revenue-admin/v1/attribute-constraint-rules/{id}/entries               bare array
 //
 // Observed entry shape (preview-rls09):
 //   ConditionAttributes  [{ Name: 'Internet_Speed_c', Operator: 'equal to', Type: 'Discrete', Value: '10 Mbps' }]
-//   ActionProduct        { Id, Name }   ActionIntent 'Auto Include'   TargetFields null   Sequence 1
-// The condition side of an entry is its ConditionAttributes; the action side is its TargetFields.
-// TargetFields was null in every sample, so its format is read defensively (array, JSON string or delimited list).
-// Values, product names, entry/rule names and audit fields are never matches.
+// Only ConditionAttributes[].Name is matched. Values, the action side, names and audit fields are never matches.
 // Browser-safe: runs in the standalone server and in the Chrome extension.
 
 import { attributeNameVariants } from './workflowScanner.js';
@@ -24,7 +21,7 @@ const rank = { Exact: 2, Probable: 1 };
 const attributePrefixes = ['attribute', 'attributevalue'];
 
 // Attribute mode: the attribute name, bare or as Attribute./AttributeValue.<name>, is Exact (__c and _c are the same).
-// Field mode: only an explicit <Object>.<Field> on the selected object is Exact; attribute names never match a field.
+// Field mode: attribute names never match a schema field; only an explicit <Object>.<Field> would.
 export function classifyAttributeRuleName(value, objectName, fieldName, { attribute = false } = {}) {
   if (typeof value !== 'string' || !value.trim()) return null;
   const segments = value.trim().split('.');
@@ -35,27 +32,6 @@ export function classifyAttributeRuleName(value, objectName, fieldName, { attrib
     return !prefix || attributePrefixes.includes(prefix) ? 'Exact' : null;
   }
   return prefix && last === lower(fieldName) && normalizeObject(prefix) === normalizeObject(objectName) ? 'Exact' : null;
-}
-
-// Field names listed in TargetFields: an array of strings or { Name | FieldName | AttributeName } objects,
-// a JSON string of either, or a comma/semicolon separated list.
-function targetFieldNames(value, depth = 0) {
-  if (value === null || value === undefined || depth > 6) return [];
-  if (typeof value === 'string') {
-    const text = value.trim();
-    if (!text) return [];
-    if (/^[[{]/.test(text)) { try { return targetFieldNames(JSON.parse(text), depth + 1); } catch { /* fall through to a list */ } }
-    return text.split(/[,;]/).map((item) => item.trim()).filter(Boolean);
-  }
-  if (Array.isArray(value)) return value.flatMap((item) => targetFieldNames(item, depth + 1));
-  if (typeof value === 'object') {
-    const own = pick(value, 'Name', 'name', 'FieldName', 'fieldName', 'AttributeName', 'attributeName', 'Field', 'field');
-    return [
-      ...(typeof own === 'string' && own.trim() ? [own.trim()] : []),
-      ...Object.entries(value).filter(([, nested]) => nested && typeof nested === 'object').flatMap(([, nested]) => targetFieldNames(nested, depth + 1))
-    ];
-  }
-  return [];
 }
 
 function best(list) {
@@ -76,18 +52,6 @@ export function findFieldInAttributeRuleCondition(entry, objectName, fieldName, 
   return top ? { name: pick(entry, 'Name', 'name') ?? 'Entry', confidence: top.confidence, snippet: hits.map((hit) => hit.snippet).join('; ') } : null;
 }
 
-export function findFieldInAttributeRuleAction(entry, objectName, fieldName, options = {}) {
-  const hits = targetFieldNames(pick(entry, 'TargetFields', 'targetFields'))
-    .map((name) => ({ name, confidence: classifyAttributeRuleName(name, objectName, fieldName, options) }))
-    .filter((hit) => hit.confidence);
-  const top = best(hits);
-  if (!top) return null;
-  const intent = pick(entry, 'ActionIntent', 'actionIntent');
-  const product = pick(pick(entry, 'ActionProduct', 'actionProduct') ?? {}, 'Name', 'name');
-  const context = [intent, product].filter(Boolean).join(' ');
-  return { name: pick(entry, 'Name', 'name') ?? 'Entry', confidence: top.confidence, snippet: `${context ? `${context} · ` : ''}Target fields: ${hits.map((hit) => hit.name).join(', ')}` };
-}
-
 async function mapWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
   let next = 0;
@@ -105,20 +69,17 @@ export async function scanAttributeConstraintRules(client, objectName, fieldName
     let entries = [];
     try { entries = await client.getAttributeConstraintRuleEntries(id); } catch { failures.push(name); return null; }
     const conditionMatches = entries.map((entry) => findFieldInAttributeRuleCondition(entry, objectName, fieldName, { attribute })).filter(Boolean);
-    const actionMatches = entries.map((entry) => findFieldInAttributeRuleAction(entry, objectName, fieldName, { attribute })).filter(Boolean);
-    if (!conditionMatches.length && !actionMatches.length) return null;
+    if (!conditionMatches.length) return null;
     const active = pick(rule, 'IsActive', 'isActive');
-    const all = [...conditionMatches, ...actionMatches];
     return {
       id: `attribute-constraint-rule:${id}`,
       recordId: id,
       ruleName: name,
       ruleType: pick(rule, 'RuleType', 'ruleType', 'Type', 'type') ?? null,
       active: active === undefined || active === null ? null : Boolean(active),
-      usage: [conditionMatches.length ? 'Condition' : null, actionMatches.length ? 'Action' : null].filter(Boolean).join(', '),
-      confidence: all.some((item) => item.confidence === 'Exact') ? 'Exact' : 'Probable',
-      conditions: conditionMatches,
-      actions: actionMatches
+      usage: 'Condition',
+      confidence: conditionMatches.some((item) => item.confidence === 'Exact') ? 'Exact' : 'Probable',
+      conditions: conditionMatches
     };
   });
   const results = perRule.filter(Boolean).sort((left, right) => (rank[right.confidence] - rank[left.confidence]) || left.ruleName.localeCompare(right.ruleName));

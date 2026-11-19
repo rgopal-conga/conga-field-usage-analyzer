@@ -36,7 +36,7 @@ Standalone backend — request scope only
   ├─ workflow reference collector
   ├─ field expression reference collector (CPQ)
   ├─ constraint rule reference collector (CPQ)
-  ├─ attribute-based constraint rule reference collector (CPQ)
+  ├─ attribute-based constraint rule reference collector (CPQ, attribute scans)
   ├─ custom code collector (source held in request memory only;
   │    Service Hook rules read only for "Runs as" wiring)
   └─ no session, cookie, file, database, or cache
@@ -82,7 +82,7 @@ Field expression matches read only `UpdateField` (from `UpdateObject`), `Conditi
 
 Constraint rule matches come from the parsed `ConditionCriteria`/`ActionCriteria` predicates (`FieldName` with its `ObjectName`), `ProductFieldA`–`D` (Product fields) and `ActionExpression`; a predicate on the selected object or `Object.Field` is Exact, a right-hand-side field reference or bare expression name is Probable.
 
-Attribute-based constraint rule matches come from each entry's `ConditionAttributes[].Name` (condition) and `TargetFields` (action): the attribute API name, bare or as `Attribute.`/`AttributeValue.`, is Exact. Condition values and `ActionProduct` are never matches.
+Attribute-based constraint rules are read only in product attribute scans. Matches come from each entry's `ConditionAttributes[].Name`: the attribute API name, bare or as `Attribute.`/`AttributeValue.`, is Exact. Condition values and the action side are not matched.
 
 Formula relationships derived from `ExpressionDependency` and dependency metadata are labeled Exact. Service Hooks are not reported as a separate collector: the code each hook runs is checked by the custom code collector, and the hook is shown under "Runs as". A hook on the selected object whose condition contains a boundary-safe match for `Object.Field` or `Field` is added to the custom code results with access Condition, labelled Exact.
 
