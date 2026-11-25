@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0B004A"><meta name="description" content="Find where Conga Platform fields are used across a tenant."><title>Conga Field Usage Analyzer</title><link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="stylesheet" href="/styles.css"></head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">C</div><div><strong>CONGA</strong><span>FIELD USAGE</span></div></div>
+    <div class="sidebar-bottom"><div class="security"><b>✓</b><div><strong id="mode-title">Standalone mode</strong><span id="mode-detail">Server-side credentials</span></div></div><div class="user"><div class="avatar">API</div><div><strong>Platform connection</strong><span id="side-session">Not connected</span></div></div></div>
+  </aside>
+  <main>
+    <header class="topbar"><div><div class="breadcrumb">CONGA / FIELD USAGE ANALYZER</div><h1>Where is this field used?</h1></div><div class="top-actions"><div id="tenant-chip" class="tenant-chip hidden"><span class="online-dot"></span><strong id="tenant-name"></strong><small id="tenant-url"></small></div><button id="feedback" type="button" class="link-button">Feedback</button><button id="disconnect" class="ghost hidden">↪ Disconnect</button></div></header>
+    <div class="content">
+      <div id="error" class="error-banner hidden">⚠ <span></span></div>
+      <section class="hero-card">
+        <div class="hero-copy"><div class="eyebrow">LIVE TENANT METADATA</div><h2>Select a Platform field</h2><p>Objects and fields are loaded live from the connected Conga Platform tenant.</p><div class="runtime-note" role="note"><b>ⓘ</b><span><strong>Runtime-only application.</strong> Nothing is stored anywhere. Reloading the page or disconnecting ends the connection and clears all loaded data and results.</span></div></div>
+        <div class="scan-form">
+          <label><span>OBJECT</span><div class="combo" id="object-combo"><div class="select-wrap"><b>▤</b><input id="object-search" autocomplete="off" disabled placeholder="Connect, then search label or API name" role="combobox" aria-expanded="false" aria-controls="object-options"><i>⌕</i></div><div id="object-options" class="combo-options hidden" role="listbox"></div></div><small id="object-search-status" class="search-status"></small></label>
+          <label><span>FIELD</span><div class="combo" id="field-combo"><div class="select-wrap"><b>{ }</b><input id="field-search" autocomplete="off" disabled placeholder="Select an object, then search fields" role="combobox" aria-expanded="false" aria-controls="field-options"><i>⌕</i></div><div id="field-options" class="combo-options hidden" role="listbox"></div></div><small id="field-search-status" class="search-status"></small></label>
+          <button id="run-scan" class="primary" disabled>Find usage</button>
+        </div>
+        <div id="field-identity" class="field-identity hidden"><code></code><span class="type"></span><span class="required hidden">Required</span><span class="calculated hidden">Calculated</span><span class="protected hidden">Protected</span></div>
+      </section>
+
+
+      <section id="usage-results" class="results-section hidden">
+        <details id="usage-panel" class="usage-panel" open>
+          <summary><span class="section-title">Usage scan</span><span id="usage-summary" class="section-note"></span><span id="usage-status" class="pill neutral"></span></summary>
+          <div class="usage-body">
+            <div id="coverage-section"></div>
+            <div id="formula-section"></div>
+            <div id="workflow-section"></div>
+            <div id="fieldexpression-section"></div>
+            <div id="constraintrule-section"></div>
+            <div id="customcode-section"></div>
+          </div>
+        </details>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="connect-dialog" class="dialog-backdrop hidden"><section class="dialog auth-dialog"><div class="dialog-mark">✓</div><div class="eyebrow">STATELESS PLATFORM CONNECTION</div><h2>Connect to a Platform URL</h2><p id="connect-copy">Enter your Conga Platform URL and a current bearer token. The server validates both and does not create a session, cookie, file, cache entry, or database record.</p>
+  <label><span class="field-label">PLATFORM URL</span><input id="platform-url" class="text-input" type="url" autocomplete="off" spellcheck="false"><small class="input-help">HTTPS Conga API origin only. Paths, query strings, fragments, credentials, IP addresses, localhost, and nonstandard ports are rejected.</small></label>
+  <label><span class="field-label">BEARER TOKEN</span><div class="secret-input"><input id="bearer-token" class="text-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste token with or without the Bearer prefix"><button id="toggle-token" type="button" class="secret-toggle" aria-label="Show bearer token">Show</button></div><small class="input-help">Held only in this page's runtime memory while connected; reload or disconnect clears it. It is never placed in a cookie, localStorage, sessionStorage, IndexedDB, server session, file, cache, or database.</small></label>
+  <button id="connect" class="primary wide">✓ Validate and load metadata</button>
+  <div id="trust-copy" class="trust-note">ⓘ Transient memory is required to execute requests, but nothing is persisted at rest. Use HTTPS when this internal tool is deployed.</div>
+</section></div>
+<div id="feedback-dialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="feedback-title"><section class="dialog feedback-dialog"><h2 id="feedback-title">Feedback</h2><p>Contact <a href="mailto:rgopal@conga.com">rgopal@conga.com</a> for any issue or feedback.</p><button id="feedback-close" type="button" class="primary wide">Close</button></section></div>
+<script type="module" src="/app.js"></script></body></html>
