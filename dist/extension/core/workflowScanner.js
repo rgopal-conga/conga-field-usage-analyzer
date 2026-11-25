@@ -148,7 +148,7 @@ export async function scanWorkflows(client, objectName, fieldName, { attribute =
         recordId: definitionId,
         versionId: pick(definition, 'versionId', 'VersionId', 'id') ?? null,
         workflowName: pick(definition, 'displayName', 'DisplayName') || pick(definition, 'name', 'Name') || definitionId,
-        workflowType: pick(definition, 'workflowType', 'WorkflowType') ?? pick(summary, 'WorkflowType') ?? '',
+        workflowType: pick(definition, 'workflowType', 'WorkflowType') ?? '',
         triggerType: pick(definition, 'triggerType', 'TriggerType') ?? '',
         objectName: pick(definition, 'objectName', 'ObjectName') ?? '',
         version: pick(definition, 'version', 'Version') ?? null,

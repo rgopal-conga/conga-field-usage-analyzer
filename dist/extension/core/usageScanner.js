@@ -3,6 +3,7 @@ import { buildReferenceUrl } from './referenceLinks.js';
 import { scanWorkflows } from './workflowScanner.js';
 import { scanFieldExpressions } from './fieldExpressionScanner.js';
 import { scanConstraintRules } from './constraintRuleScanner.js';
+import { scanAttributeConstraintRules } from './attributeConstraintRuleScanner.js';
 import { findFormulaReferences, loadAllSchemas } from './formulaScanner.js';
 import { scanCustomCode } from './customCodeScanner.js';
 
@@ -47,6 +48,7 @@ function hookConditionResults(hooks, objectName, fieldName) {
     .sort((left, right) => left.runsAs[0].name.localeCompare(right.runsAs[0].name));
 }
 
+// Attribute-based constraint rules only reference product attributes, so they run in the attribute scan only.
 // Product attributes are Attribute records, not schema fields, so they have their own scan: Field Expressions,
 // workflows and custom code are matched on the attribute API name (Attribute./AttributeValue. paths are Exact);
 // formula dependencies do not apply.
@@ -60,6 +62,16 @@ function constraintRuleLimitations(scan) {
   if (scan.failures.length) return [`${scan.failures.length} constraint rule(s) could not be fully read (conditions or actions): ${listText(scan.failures)}.`];
   return [];
 }
+function attributeRuleResultsWithLinks(scan, linkTemplates, platformUrl, objectName, fieldName) {
+  const results = scan.error ? [] : scan.results;
+  for (const item of results) item.viewUrl = buildReferenceUrl(linkTemplates.attributeConstraintRule, { platformUrl, id: item.recordId, objectName, fieldName, name: item.ruleName });
+  return results;
+}
+function attributeRuleLimitations(scan) {
+  if (scan.error) return [`Attribute-based constraint rule scan failed: ${scan.error.message}. The other results are still complete.`];
+  if (scan.failures.length) return [`${scan.failures.length} attribute-based constraint rule(s) could not be read (entries): ${listText(scan.failures)}.`];
+  return [];
+}
 const listText = (items) => `${items.slice(0, 5).join(', ')}${items.length > 5 ? ', …' : ''}`;
 async function scanAttributeUsage(client, attributeName, { platformUrl, linkTemplates }) {
   if (typeof attributeName !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,199}$/.test(attributeName)) throw new CongaApiError('Attribute name is invalid', 400);
@@ -70,10 +82,11 @@ async function scanAttributeUsage(client, attributeName, { platformUrl, linkTemp
 
   let hookError = null;
   const hooksPromise = client.listServiceHooks().catch((error) => { hookError = error; return []; });
-  const [workflowScan, fieldExpressionScan, constraintRuleScan, customCodeScan, hooks] = await Promise.all([
+  const [workflowScan, fieldExpressionScan, constraintRuleScan, attributeRuleScan, customCodeScan, hooks] = await Promise.all([
     scanWorkflows(client, objectName, attributeName, { attribute: true }).catch((error) => ({ error })),
     scanFieldExpressions(client, objectName, attributeName, { attribute: { name: selected.name, label: selected.label } }).catch((error) => ({ error })),
     scanConstraintRules(client, objectName, attributeName, { attribute: true }).catch((error) => ({ error })),
+    scanAttributeConstraintRules(client, objectName, attributeName, { attribute: true }).catch((error) => ({ error })),
     hooksPromise.then((list) => scanCustomCode(client, objectName, attributeName, { hooks: list, attribute: true })).catch((error) => ({ error })),
     hooksPromise
   ]);
@@ -85,6 +98,7 @@ async function scanAttributeUsage(client, attributeName, { platformUrl, linkTemp
   const customCodeResults = customCodeScan.error ? [] : customCodeScan.results;
   for (const item of customCodeResults) item.viewUrl = buildReferenceUrl(linkTemplates.customCode, { platformUrl, id: item.projectName, objectName, fieldName: attributeName, name: item.projectName });
   const constraintRuleResults = constraintRuleResultsWithLinks(constraintRuleScan, linkTemplates, platformUrl, objectName, attributeName);
+  const attributeRuleResults = attributeRuleResultsWithLinks(attributeRuleScan, linkTemplates, platformUrl, objectName, attributeName);
 
   const status = (scan) => (scan.error ? 'failed' : scan.failures.length ? 'partial' : 'complete');
   const limitations = [];
@@ -93,6 +107,7 @@ async function scanAttributeUsage(client, attributeName, { platformUrl, linkTemp
   if (fieldExpressionScan.error) limitations.push(`Field expression scan failed: ${fieldExpressionScan.error.message}. The other results are still complete.`);
   else if (fieldExpressionScan.failures.length) limitations.push(`${fieldExpressionScan.failures.length} field expression(s) could not be read and were skipped: ${listText(fieldExpressionScan.failures)}.`);
   limitations.push(...constraintRuleLimitations(constraintRuleScan));
+  limitations.push(...attributeRuleLimitations(attributeRuleScan));
   if (hookError) limitations.push(`Service Hook rules could not be read (${hookError.message}); "Runs as" may omit Service Hooks.`);
   if (customCodeScan.error) limitations.push(`Custom code scan failed: ${customCodeScan.error.message}. The other results are still complete.`);
   else {
@@ -107,10 +122,12 @@ async function scanAttributeUsage(client, attributeName, { platformUrl, linkTemp
     workflows: workflowResults,
     fieldExpressions: fieldExpressionResults,
     constraintRules: constraintRuleResults,
+    attributeConstraintRules: attributeRuleResults,
     customCode: customCodeResults,
     coverage: {
       objectsScanned: 0, fieldsScanned: 0,
       constraintRulesScanned: constraintRuleScan.error ? 0 : constraintRuleScan.constraintRulesScanned,
+      attributeConstraintRulesScanned: attributeRuleScan.error ? 0 : attributeRuleScan.attributeConstraintRulesScanned,
       workflowsScanned: workflowScan.error ? 0 : workflowScan.workflowsScanned,
       fieldExpressionsScanned: fieldExpressionScan.error ? 0 : fieldExpressionScan.fieldExpressionsScanned,
       customCodeProjectsScanned: customCodeScan.error ? 0 : customCodeScan.projectsScanned,
@@ -122,6 +139,7 @@ async function scanAttributeUsage(client, attributeName, { platformUrl, linkTemp
         { key: 'workflows', label: 'Workflow references', status: status(workflowScan), matches: workflowResults.length },
         { key: 'fieldExpressions', label: 'Field expression references', status: status(fieldExpressionScan), matches: fieldExpressionResults.length },
         { key: 'constraintRules', label: 'Constraint rule references', status: status(constraintRuleScan), matches: constraintRuleResults.length },
+        { key: 'attributeConstraintRules', label: 'Attribute-based constraint rule references', status: status(attributeRuleScan), matches: attributeRuleResults.length },
         { key: 'customCode', label: 'Custom code references', status: status(customCodeScan), matches: customCodeResults.length }
       ]
     },
@@ -213,6 +231,7 @@ export async function scanFieldUsage(client, objectName, fieldName, { platformUr
     workflows: workflowResults,
     fieldExpressions: fieldExpressionResults,
     constraintRules: constraintRuleResults,
+    attributeConstraintRules: [],
     customCode: customCodeResults,
     coverage: {
       constraintRulesScanned: constraintRuleScan.error ? 0 : constraintRuleScan.constraintRulesScanned,

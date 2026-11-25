@@ -5,7 +5,8 @@ export default {
     "field": null,
     "workflow": "{platformUrl}/workflow/{id}/",
     "fieldExpression": "{platformUrl}/cadmin/field-expression/{id}",
-    "constraintRule": "{platformUrl}/cadmin/constraint-rule/{id}",
+    "constraintRule": "{platformUrl}/cadmin/constraint-rules/edit/{id}",
+    "attributeConstraintRule": "{platformUrl}/cadmin/attribute-based-constraint-rules/edit/{id}",
     "customCode": null
   }
 };

@@ -1,4 +1,4 @@
-import { projectLabel, accessLabel, filterOptions, searchTerms, customCodeRowVisible } from './resultFilters.js';
+import { projectLabel, accessLabel, callbackLabels, filterOptions, searchTerms, customCodeRowVisible } from './resultFilters.js';
 
 const state = {
   config: null, connection: null,
@@ -10,7 +10,7 @@ const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[char]));
 const debounce = (fn, wait = 250) => { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), wait); }; };
 
-// One UI, two runtimes. Every API call goes through request(): Test comment
+// One UI, two runtimes. Every API call goes through request():
 //   - standalone site: HTTP to the local Node server (server/index.js);
 //   - Chrome extension: the same API router (server/api.js, copied to core/api.js by
 //     `npm run build:extension`) runs in this page and calls Conga Platform directly.
@@ -159,11 +159,12 @@ function renderUsage(result) {
   const fieldExpressions = result.fieldExpressions ?? [];
   const customCode = result.customCode ?? [];
   const constraintRules = result.constraintRules ?? [];
-  const total = result.formulaDependencies.length + workflows.length + fieldExpressions.length + constraintRules.length + customCode.length;
+  const attributeRules = result.attributeConstraintRules ?? [];
+  const total = result.formulaDependencies.length + workflows.length + fieldExpressions.length + constraintRules.length + attributeRules.length + customCode.length;
   $('#usage-summary').textContent = `${result.field.objectName}.${result.field.fieldName} · ${total} reference${total === 1 ? '' : 's'}`;
   const coverage = [
     ...result.coverage.collectors.map((item) => item.status === 'not applicable' ? `${item.label}: not applicable to product attributes` : `${item.label}: ${item.status}, ${item.matches} match${item.matches === 1 ? '' : 'es'}`),
-    result.field.kind === 'attribute' ? `Scanned: ${result.coverage.attributesScanned ?? 0} product attributes, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)` : `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
+    result.field.kind === 'attribute' ? `Scanned: ${result.coverage.attributesScanned ?? 0} product attributes, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.attributeConstraintRulesScanned ?? 0} attribute-based constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files)` : `Scanned: ${result.coverage.objectsScanned ?? 1} objects, ${result.coverage.fieldsScanned} fields, ${result.coverage.workflowsScanned ?? 0} workflows, ${result.coverage.fieldExpressionsScanned ?? 0} field expressions, ${result.coverage.constraintRulesScanned ?? 0} constraint rules, ${result.coverage.customCodeProjectsScanned ?? 0} custom code projects (${result.coverage.customCodeFilesScanned ?? 0} files), ${result.coverage.serviceHooksScanned ?? 0} Service Hooks`
   ];
   $('#coverage-section').innerHTML = usageSection('Scan coverage', coverage.length, '', `<ul class="plain-list">${coverage.map((text) => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`);
   $('#formula-section').innerHTML = usageSection('Formula dependencies', result.formulaDependencies.length, 'No formula dependencies found',
@@ -181,6 +182,9 @@ function renderUsage(result) {
       fieldExpressions.map(fieldExpressionRow)));
   $('#constraintrule-section').innerHTML = usageSection('Constraint rules', constraintRules.length, 'No constraint rule references found',
     fieldExpressionLegend + table(['Constraint rule name', 'Is active', 'Type', 'Used in condition', 'Used in action'], constraintRules.map(constraintRuleRow)));
+  // Attribute-based constraint rules reference product attributes only, so the section shows for attribute scans.
+  $('#attributerule-section').innerHTML = result.field.kind !== 'attribute' ? '' : usageSection('Attribute-based constraint rules', attributeRules.length, 'No attribute-based constraint rule references found',
+    fieldExpressionLegend + table(['Attribute-based constraint rule name', 'Is active', 'Type', 'Used in condition'], attributeRules.map((item) => constraintRuleRow(item).slice(0, 4))));
   renderCustomCode(customCode);
 }
 // One Constraint Rule row: each matching condition/action is listed by name with its criteria, coloured by match.
@@ -211,7 +215,7 @@ function fieldExpressionRow(item) {
 }
 const fieldExpressionLegend = '<div class="match-legend"><span><i class="field-match-exact"></i>Exact match</span><span><i class="field-match-probable"></i>Probable match</span></div>';
 function runsAsText(item) {
-  if (!item.runsAs || !item.runsAs.length) return '<span class="muted">Not linked to a hook, callback or Custom API</span>';
+  if (!item.runsAs || !item.runsAs.length) return '<span class="muted">Not linked to a hook or Custom API</span>';
   return item.runsAs.map((entry) => `<div><strong>${escapeHtml(entry.type)}</strong> ${escapeHtml(entry.name)}${entry.objectName ? ` <span class="muted">on ${escapeHtml(entry.objectName)}</span>` : ''}${entry.active === false ? ' <span class="muted">(inactive)</span>' : ''}</div>`).join('');
 }
 function confidenceBadge(value) { return `<span class="confidence confidence-${escapeHtml(String(value).toLowerCase())}">${escapeHtml(value)}</span>`; }
@@ -225,6 +229,7 @@ function filterCustomCode(section, items) {
   const filters = {
     project: section.querySelector('.table-filter-project')?.value ?? '',
     access: section.querySelector('.table-filter-access')?.value ?? '',
+    callback: section.querySelector('.table-filter-callback')?.value ?? '',
     terms: searchTerms(section.querySelector('.table-search-input')?.value)
   };
   const rows = [...section.querySelectorAll('tbody tr')];
@@ -234,7 +239,7 @@ function filterCustomCode(section, items) {
     row.classList.toggle('hidden', !visible);
     if (visible) shown += 1;
   });
-  const filtered = filters.project || filters.access || filters.terms.length;
+  const filtered = filters.project || filters.access || filters.callback || filters.terms.length;
   section.querySelector('.table-search-count').textContent = filtered ? `${shown} of ${rows.length} shown` : '';
   section.querySelector('.table-search-empty').classList.toggle('hidden', shown > 0);
   section.querySelector('.table-filter-clear').classList.toggle('hidden', !filtered);
@@ -248,13 +253,14 @@ function renderCustomCode(items) {
     '<div class="search-box"><span class="muted" aria-hidden="true">⌕</span><input type="search" class="table-search-input" placeholder="Search custom code results" aria-label="Search custom code results" autocomplete="off" spellcheck="false"></div>' +
     filterSelect('table-filter-project', 'Project', 'All projects', filterOptions(items, projectLabel)) +
     filterSelect('table-filter-access', 'Access', 'All access', filterOptions(items, accessLabel)) +
+    filterSelect('table-filter-callback', 'Callback', 'All callbacks', filterOptions(items, callbackLabels)) +
     '<button type="button" class="link-button table-filter-clear hidden">Clear filters</button>' +
     '<span class="table-search-count muted"></span></div>';
   const empty = '<div class="table-search-empty muted hidden">No results match your filters.</div>';
   $('#customcode-section').innerHTML = usageSection('Custom code', items.length, 'No custom code references found', controls +
-    table(['Project / file', 'Class · method', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
+    table(['Project / file', 'Callback', 'Access', 'Confidence', 'Runs as', 'Code'], items.map((item) => [
       customCodeLocation(item),
-      escapeHtml([item.className, item.methodName].filter(Boolean).join(' · ') || '—'),
+      (item.callbacks ?? []).map((entry) => `<div${entry.fullName ? ` title="${escapeHtml(entry.fullName)}"` : ''}>${escapeHtml(entry.name)}</div>`).join(''),
       escapeHtml(item.access),
       confidenceBadge(item.confidence),
       runsAsText(item),
@@ -266,10 +272,12 @@ function renderCustomCode(items) {
   section.querySelector('.table-search-input').addEventListener('input', apply);
   section.querySelector('.table-filter-project').addEventListener('change', apply);
   section.querySelector('.table-filter-access').addEventListener('change', apply);
+  section.querySelector('.table-filter-callback').addEventListener('change', apply);
   section.querySelector('.table-filter-clear').addEventListener('click', () => {
     section.querySelector('.table-search-input').value = '';
     section.querySelector('.table-filter-project').value = '';
     section.querySelector('.table-filter-access').value = '';
+    section.querySelector('.table-filter-callback').value = '';
     apply();
   });
 }

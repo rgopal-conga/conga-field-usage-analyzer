@@ -5,7 +5,7 @@
 //   GET /api/extensibility/v1/customcode                          every project
 //   GET /api/extensibility/v1/customcode/{name}                   project Documents [{ Name, FilePath, SourceCode }]
 //   GET /api/extensibility/v1/customcode/{name}/download          ZIP fallback when Documents is empty
-//   GET /api/extensibility/v1/callbacks                           callback contract -> { ProjectName, ClassName }
+//   GET /api/extensibility/v1/callbacks/modules (+ /modules/{module})   callback contract -> { ProjectName, ClassName }
 //   GET /api/extensibility/v1/customcode/api-resource[/{n}/uri-entries]   Custom API route -> project/class/method
 //   Service Hook rules are passed in (already read by the usage scan) -> CustomCodeDetails { ProjectName, ClassName }
 //
@@ -251,9 +251,10 @@ function buildWiring(hooks, callbacks, apiRoutes) {
     const mapping = pick(contract, 'CustomCodeMapping', 'customCodeMapping') ?? {};
     add(pick(mapping, 'ProjectName', 'projectName'), pick(mapping, 'ClassName', 'className'), {
       type: 'Callback',
-      name: pick(contract, 'CallbackDisplayName', 'CallbackShortName', 'CallbackName') ?? 'Callback',
+      name: pick(contract, 'CallbackDisplayName') || pick(contract, 'CallbackShortName') || String(pick(contract, 'CallbackName') ?? '').split('.').at(-1) || 'Callback',
+      fullName: pick(contract, 'CallbackName') ?? null,
       objectName: null,
-      detail: pick(contract, 'CallbackCategoryName', 'callbackCategoryName') ?? '',
+      detail: pick(contract, 'CallbackCategoryName', 'callbackCategoryName') || pick(contract, 'ModuleName') || '',
       active: true
     });
   }
@@ -296,7 +297,12 @@ export async function scanCustomCode(client, objectName, fieldName, { hooks = []
   const projects = await client.listCustomCodeProjects();
   const notes = [];
   const [callbacks, apiRoutes] = await Promise.all([
-    client.listCallbackContracts().catch((error) => { notes.push(`Callback mappings could not be read (${error.message}); "Runs as" may omit callbacks.`); return []; }),
+    client.listCallbackContracts()
+      .then(({ contracts, failedModules }) => {
+        if (failedModules.length) notes.push(`Callbacks of ${failedModules.length} module(s) could not be read: ${failedModules.join(', ')}; the Callback column may omit their callbacks.`);
+        return contracts;
+      })
+      .catch((error) => { notes.push(`Callback mappings could not be read (${error.message}); the Callback column may be blank.`); return []; }),
     client.listCustomApiRoutes().catch((error) => { notes.push(`Custom API routes could not be read (${error.message}); "Runs as" may omit Custom APIs.`); return []; })
   ]);
   const wiring = buildWiring(hooks, callbacks, apiRoutes);
@@ -329,7 +335,9 @@ export async function scanCustomCode(client, objectName, fieldName, { hooks = []
             filePath: file.path,
             source,
             ...match,
-            runsAs: runsAs.map(({ type, name: runName, objectName: runObject, detail, active }) => ({ type, name: runName, objectName: runObject, detail, active }))
+            // Callbacks get their own column; "Runs as" keeps Service Hooks and Custom APIs.
+            runsAs: runsAs.filter((entry) => entry.type !== 'Callback').map(({ type, name: runName, objectName: runObject, detail, active }) => ({ type, name: runName, objectName: runObject, detail, active })),
+            callbacks: runsAs.filter((entry) => entry.type === 'Callback').map(({ name: runName, fullName }) => ({ name: runName, fullName }))
           });
         }
       }

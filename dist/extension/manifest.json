@@ -23,7 +23,7 @@
   "content_security_policy": {
     "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://*.congacloud.com https://*.congacloud.eu https://*.congacloud.au; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   },
-  "version": "0.10.1",
+  "version": "0.12.1",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
